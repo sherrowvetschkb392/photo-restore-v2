@@ -32,6 +32,16 @@ function Invoke-CaptureChecked {
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 foreach ($Path in @($OutputPath, $ReportPath)) { if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force } }
 
+Write-Output "Checking the deployed API version and safety limit..."
+$HealthText = Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error http://127.0.0.1:8080/api/health" } "Checking the API health endpoint"
+$Health = $HealthText | ConvertFrom-Json
+if ($Health.status -ne "ok" -or $Health.version -ne "0.3.0") {
+    throw "Expected healthy API version 0.3.0, received status='$($Health.status)' version='$($Health.version)'"
+}
+if ([int64]$Health.max_input_pixels -ne 2000000) {
+    throw "Public input limit changed unexpectedly: $($Health.max_input_pixels)"
+}
+
 Write-Output "Uploading one isolated API smoke-test image..."
 & scp @SshOptions $InputPath "${SshHost}:${RemoteInput}"
 if ($LASTEXITCODE -ne 0) { throw "Uploading the API smoke-test image failed" }
@@ -64,6 +74,10 @@ if ($LASTEXITCODE -ne 0) { throw "Downloading API output failed" }
 if ($LASTEXITCODE -ne 0) { throw "Downloading API report failed" }
 $OutputHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $OutputPath).Hash.ToLowerInvariant()
 if ($OutputHash -ne $Final.output_sha256) { throw "Downloaded output SHA-256 mismatch" }
+$Report = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json
+if ($Report.compositor -notin @("memory", "disk")) {
+    throw "API report did not identify a valid compositor: $($Report.compositor)"
+}
 
 Write-Output "Deleting the verified API job..."
 $DeleteText = Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error -X DELETE http://127.0.0.1:8080/api/jobs/${JobId}" } "Deleting the API smoke-test job"
@@ -73,4 +87,5 @@ Invoke-CaptureChecked { ssh @SshOptions $SshHost "rm -f '${RemoteInput}' '${Remo
 
 Write-Output "Output: $OutputPath"
 Write-Output "Report: $ReportPath"
+Write-Output "Compositor: $($Report.compositor)"
 Write-Output "RESULT=PASS_WEB_API_SMOKE_TEST"

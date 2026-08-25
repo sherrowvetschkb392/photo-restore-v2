@@ -19,9 +19,11 @@ board NPU, and return a verified restored image without requiring cloud access.
 | Batch validation and resume after SSH loss | Complete | `scripts/restore-validation-set.ps1` |
 | Real photo single-image command | Implemented | `scripts/restore-photo.ps1` |
 | High-resolution visual comparison | Implemented | validation comparison viewer |
-| Large-photo production processing | Pending | Current worker limit is 2,000,000 input pixels |
-| User-facing local UI/API | Pending | `apps/` has no service or UI yet |
-| Persistent photo library and job history | Pending | No database/index yet |
+| Disk-backed large-image compositor | Complete | RK3588 output hash matches the reference memory compositor; row-band overlap-add writes finalized RGB rows to a project-local memmap |
+| Large-photo public processing | Pending | Public limit remains 2,000,000 pixels until board memory/disk/time validation |
+| User-facing local/public UI and API | Complete | FastAPI, SQLite queue, browser UI, systemd and Cloudflare Access |
+| Persistent job history | Complete for current appliance | SQLite index, input/output/report downloads and per-job deletion |
+| Automatic retention and storage quotas | Pending | Manual deletion exists; age/space policies are not implemented |
 
 ## Current image contract
 
@@ -50,15 +52,12 @@ board-side temporary job is removed after verified download unless
 
 ## Next implementation order
 
-1. Keep the verified single-image path as the reference behavior.
-2. Replace the in-memory compositor with stripe/disk-backed processing so
-   larger originals can be accepted safely.
-3. Add a local batch command for a user-selected folder, with per-file reports
-   and resume behavior.
-4. Add a small offline UI or local HTTP API only after the CLI contract is
-   stable.
-5. Add retention rules and a searchable job/output index if the workstation
-   will be used as a long-running appliance.
+1. Benchmark representative 3, 6 and 12 megapixel inputs for RAM, disk and time.
+2. Add browser preview derivatives so large 4x outputs are not decoded at full
+   resolution merely to show the comparison viewer.
+3. Raise the public pixel limit only to a measured safe tier.
+4. Add automatic age/free-space retention rules for long-running public use.
 
-The current project is therefore at the validated engine/prototype stage, not
-yet at the final appliance/UI stage.
+The current project is a working authenticated public appliance with a
+prototype-size safety limit. Large-photo capacity and automatic retention are
+the remaining production gaps.

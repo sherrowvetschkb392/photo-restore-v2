@@ -2,8 +2,9 @@
 
 面向 RK3588 的离线老照片修复工作站。
 
-当前阶段：RKNN 模型、板端 NPU 推理、批量验证和单图 CLI 已验证；下一阶段是
-大图生产化和本地用户界面。
+当前阶段：RKNN 模型、板端 NPU 推理、批量验证、单图 CLI、FastAPI/Web UI、
+systemd 服务和受 Cloudflare Access 保护的公网入口均已验证。下一阶段是大图
+生产化、轻量预览与长期存储治理。
 
 已确定首版推理参数：RealESRGAN x4plus FP16、固定 96×96 输入 tile、
 每边初始重叠 8 输入像素。最终 overlap 由真实照片接缝测试确认。

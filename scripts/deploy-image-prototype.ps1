@@ -2,7 +2,9 @@ param(
     [string]$Distribution = "Ubuntu",
     [string]$CondaEnvironment = "photo-restore-rknn232",
     [string]$SshHost = "rk3588",
-    [string]$RemoteRoot = "/userdata/photo-restore-v2"
+    [string]$RemoteRoot = "/userdata/photo-restore-v2",
+    [ValidateSet("auto", "memory", "disk")]
+    [string]$Compositor = "auto"
 )
 
 $ErrorActionPreference = "Stop"
@@ -115,7 +117,7 @@ Invoke-NativeRetry {
 } "Uploading prototype input"
 
 Invoke-NativeChecked {
-    ssh @SshOptions $SshHost "'${RemoteRoot}/venv/bin/python' '${RemoteRoot}/repo/restore_image.py' --input '${RemoteRoot}/data/prototype/input/prototype-173x131.png' --output '${RemoteRoot}/data/prototype/output/prototype-173x131-x4.png' --model '${RemoteModel}' --report '${RemoteRoot}/benchmarks/prototype-173x131-report.json'"
+    ssh @SshOptions $SshHost "'${RemoteRoot}/venv/bin/python' '${RemoteRoot}/repo/restore_image.py' --input '${RemoteRoot}/data/prototype/input/prototype-173x131.png' --output '${RemoteRoot}/data/prototype/output/prototype-173x131-x4.png' --model '${RemoteModel}' --report '${RemoteRoot}/benchmarks/prototype-173x131-report.json' --compositor '${Compositor}' --work-dir '${RemoteRoot}/storage/tmp'"
 } "Running board prototype restoration"
 
 Invoke-NativeRetry {
@@ -125,7 +127,20 @@ Invoke-NativeRetry {
     scp @SshOptions "${SshHost}:${RemoteRoot}/benchmarks/prototype-173x131-report.json" $LocalReport
 } "Downloading prototype report"
 
+$Report = Get-Content -LiteralPath $LocalReport -Raw | ConvertFrom-Json
+$ExpectedCompositor = if ($Compositor -eq "auto") { "memory" } else { $Compositor }
+if ($Report.compositor -ne $ExpectedCompositor) {
+    throw "Prototype used compositor '$($Report.compositor)', expected '$ExpectedCompositor'"
+}
+if ($ExpectedCompositor -eq "disk" -and [int64]$Report.raw_output_bytes -le 0) {
+    throw "Disk compositor report did not record a positive raw_output_bytes value"
+}
+if (-not (Test-Path -LiteralPath $LocalOutput -PathType Leaf) -or (Get-Item -LiteralPath $LocalOutput).Length -le 0) {
+    throw "Prototype output was not downloaded correctly: $LocalOutput"
+}
+
 Write-Output "Input: $InputImage"
 Write-Output "Output: $LocalOutput"
 Write-Output "Report: $LocalReport"
+Write-Output "Compositor: $Compositor"
 Write-Output "RESULT=PASS_IMAGE_PROTOTYPE_DEPLOY"

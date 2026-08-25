@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
-SERVICE_VERSION = "0.2.2"
+SERVICE_VERSION = "0.3.0"
 ROOT = Path(os.environ.get("PHOTO_RESTORE_ROOT", "/userdata/photo-restore-v2"))
 STORAGE = ROOT / "storage"
 DATABASE = ROOT / "database" / "jobs.sqlite3"
@@ -113,7 +113,7 @@ def process_job(job_id: str) -> None:
     row = get_job(job_id)
     input_path, output_path, report_path = map(Path, (row["input_path"], row["output_path"], row["report_path"]))
     set_state(job_id, "RUNNING")
-    command = [str(PYTHON), str(WORKER), "--input", str(input_path), "--output", str(output_path), "--model", str(MODEL), "--report", str(report_path), "--max-input-pixels", str(MAX_INPUT_PIXELS)]
+    command = [str(PYTHON), str(WORKER), "--input", str(input_path), "--output", str(output_path), "--model", str(MODEL), "--report", str(report_path), "--max-input-pixels", str(MAX_INPUT_PIXELS), "--compositor", "auto", "--work-dir", str(STORAGE / "tmp")]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=3600)
     (input_path.parent / "worker.log").write_text(completed.stdout + completed.stderr, encoding="utf-8")
     if completed.returncode != 0 or not output_path.is_file() or not report_path.is_file():

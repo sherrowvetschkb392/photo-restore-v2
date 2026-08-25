@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterator
 
 import numpy as np
@@ -175,3 +176,106 @@ def enhance_tiled(
     right = left + plan.input_width * scale
     return accumulator[top:bottom, left:right], plan
 
+
+def enhance_tiled_to_memmap(
+    image: np.ndarray,
+    infer_tile: Callable[[np.ndarray], np.ndarray],
+    output_path: Path,
+    *,
+    tile_size: int = 96,
+    overlap: int = 8,
+    scale: int = 4,
+    progress: Callable[[int, int], None] | None = None,
+) -> tuple[np.memmap, TilePlan]:
+    """Enhance into an RGB uint8 memmap one horizontal tile band at a time."""
+    if image.dtype != np.float32:
+        image = image.astype(np.float32)
+    plan = make_tile_plan(
+        image.shape[0], image.shape[1], tile_size=tile_size, overlap=overlap, scale=scale
+    )
+    padded = _pad_image(image, plan)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output = np.memmap(
+        output_path,
+        mode="w+",
+        dtype=np.uint8,
+        shape=(plan.input_height * scale, plan.input_width * scale, 3),
+    )
+
+    output_tile = tile_size * scale
+    output_stride = plan.stride * scale
+    output_overlap = output_tile - output_stride
+    padded_output_width = plan.padded_width * scale
+    crop_top = plan.pad_top * scale
+    crop_bottom = crop_top + plan.input_height * scale
+    crop_left = plan.pad_left * scale
+    crop_right = crop_left + plan.input_width * scale
+    expected_output_shape = (output_tile, output_tile, 3)
+    weight = make_blend_weight(plan)
+    previous_tail_accumulator: np.ndarray | None = None
+    previous_tail_weight: np.ndarray | None = None
+    completed = 0
+
+    try:
+        for row_index, y in enumerate(plan.y_starts):
+            band_accumulator = np.zeros(
+                (output_tile, padded_output_width, 3), dtype=np.float32
+            )
+            band_weight = np.zeros((output_tile, padded_output_width), dtype=np.float32)
+            for x in plan.x_starts:
+                tile = np.ascontiguousarray(padded[y : y + tile_size, x : x + tile_size])
+                enhanced = np.asarray(infer_tile(tile), dtype=np.float32)
+                if enhanced.shape != expected_output_shape:
+                    raise RuntimeError(
+                        f"tile output shape {enhanced.shape}, expected {expected_output_shape}"
+                    )
+                out_x = x * scale
+                out_slice = (
+                    slice(0, output_tile),
+                    slice(out_x, out_x + output_tile),
+                )
+                band_accumulator[out_slice] += enhanced * weight[..., None]
+                band_weight[out_slice] += weight
+                completed += 1
+                if progress:
+                    progress(completed, plan.tile_count)
+
+            if previous_tail_accumulator is not None and previous_tail_weight is not None:
+                band_accumulator[:output_overlap] += previous_tail_accumulator
+                band_weight[:output_overlap] += previous_tail_weight
+
+            is_last_row = row_index == len(plan.y_starts) - 1
+            finalized_rows = output_tile if is_last_row else output_stride
+            global_start = y * scale
+            global_end = global_start + finalized_rows
+            visible_start = max(global_start, crop_top)
+            visible_end = min(global_end, crop_bottom)
+            if visible_start < visible_end:
+                local_start = visible_start - global_start
+                local_end = visible_end - global_start
+                visible_weight = band_weight[
+                    local_start:local_end, crop_left:crop_right
+                ]
+                if float(visible_weight.min()) <= 0:
+                    raise RuntimeError("tile blending produced uncovered output pixels")
+                normalized = band_accumulator[
+                    local_start:local_end, crop_left:crop_right
+                ] / visible_weight[..., None]
+                destination_start = visible_start - crop_top
+                destination_end = visible_end - crop_top
+                output[destination_start:destination_end] = np.clip(
+                    np.rint(normalized * 255.0), 0, 255
+                ).astype(np.uint8)
+
+            if is_last_row:
+                previous_tail_accumulator = None
+                previous_tail_weight = None
+            else:
+                previous_tail_accumulator = band_accumulator[output_stride:].copy()
+                previous_tail_weight = band_weight[output_stride:].copy()
+        output.flush()
+        return output, plan
+    except Exception:
+        del output
+        output_path.unlink(missing_ok=True)
+        raise

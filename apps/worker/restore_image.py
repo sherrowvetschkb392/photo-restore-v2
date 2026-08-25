@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import resource
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -16,7 +17,11 @@ import numpy as np
 from PIL import Image, ImageOps
 from rknnlite.api import RKNNLite
 
-from tiling import TilePlan, enhance_tiled
+from tiling import TilePlan, enhance_tiled, enhance_tiled_to_memmap
+
+
+DISK_COMPOSITOR_THRESHOLD_PIXELS = 500_000
+MINIMUM_FREE_DISK_RESERVE_BYTES = 256 * 1024 * 1024
 
 
 def file_sha256(path: Path) -> str:
@@ -38,6 +43,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scale", type=int, default=4)
     parser.add_argument("--max-input-pixels", type=int, default=2_000_000)
     parser.add_argument("--jpeg-quality", type=int, default=95)
+    parser.add_argument(
+        "--compositor", choices=("auto", "memory", "disk"), default="auto"
+    )
+    parser.add_argument("--work-dir", type=Path)
     return parser.parse_args()
 
 
@@ -131,6 +140,23 @@ def main() -> int:
             )
         input_array = np.asarray(source, dtype=np.float32) / 255.0
 
+    compositor = args.compositor
+    if compositor == "auto":
+        compositor = (
+            "disk" if input_pixels > DISK_COMPOSITOR_THRESHOLD_PIXELS else "memory"
+        )
+    work_dir = args.work_dir or args.output.parent
+    raw_output_bytes = width * args.scale * height * args.scale * 3
+    required_free_bytes = raw_output_bytes * 2 + MINIMUM_FREE_DISK_RESERVE_BYTES
+    if compositor == "disk":
+        work_dir.mkdir(parents=True, exist_ok=True)
+        free_bytes = shutil.disk_usage(work_dir).free
+        if free_bytes < required_free_bytes:
+            raise OSError(
+                f"insufficient working disk space: need at least {required_free_bytes} "
+                f"bytes free, found {free_bytes}"
+            )
+
     engine = RknnTileEngine(args.model)
     inference_started = time.perf_counter()
     last_update = 0.0
@@ -149,22 +175,45 @@ def main() -> int:
             )
             last_update = now
 
+    raw_output_path: Path | None = None
+    raw_output: np.memmap | None = None
     try:
-        restored, plan = enhance_tiled(
-            input_array,
-            engine.infer,
-            tile_size=args.tile_size,
-            overlap=args.overlap,
-            scale=args.scale,
-            progress=progress,
-        )
+        if compositor == "disk":
+            handle, raw_output_name = tempfile.mkstemp(
+                prefix=".photo-restore-", suffix=".rgb", dir=work_dir
+            )
+            os.close(handle)
+            raw_output_path = Path(raw_output_name)
+            raw_output, plan = enhance_tiled_to_memmap(
+                input_array,
+                engine.infer,
+                raw_output_path,
+                tile_size=args.tile_size,
+                overlap=args.overlap,
+                scale=args.scale,
+                progress=progress,
+            )
+            output_image = Image.fromarray(raw_output)
+        else:
+            restored, plan = enhance_tiled(
+                input_array,
+                engine.infer,
+                tile_size=args.tile_size,
+                overlap=args.overlap,
+                scale=args.scale,
+                progress=progress,
+            )
+            output_array = np.clip(np.rint(restored * 255.0), 0, 255).astype(np.uint8)
+            output_image = Image.fromarray(output_array)
+        inference_seconds = time.perf_counter() - inference_started
+        atomic_save(output_image, args.output, args.jpeg_quality)
     finally:
         engine.close()
-    inference_seconds = time.perf_counter() - inference_started
-
-    output_array = np.clip(np.rint(restored * 255.0), 0, 255).astype(np.uint8)
-    output_image = Image.fromarray(output_array)
-    atomic_save(output_image, args.output, args.jpeg_quality)
+        if raw_output is not None:
+            raw_output.flush()
+            del raw_output
+        if raw_output_path is not None:
+            raw_output_path.unlink(missing_ok=True)
     total_seconds = time.perf_counter() - total_started
 
     report = {
@@ -176,6 +225,9 @@ def main() -> int:
         "model_sha256": file_sha256(args.model),
         "plan": plan_to_dict(plan),
         "output_size": list(output_image.size),
+        "compositor": compositor,
+        "raw_output_bytes": raw_output_bytes if compositor == "disk" else 0,
+        "required_free_bytes": required_free_bytes if compositor == "disk" else 0,
         "inference_seconds": round(inference_seconds, 3),
         "total_seconds": round(total_seconds, 3),
         "max_rss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,

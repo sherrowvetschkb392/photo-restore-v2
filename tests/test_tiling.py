@@ -1,8 +1,10 @@
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from apps.worker.tiling import enhance_tiled, make_tile_plan
+from apps.worker.tiling import enhance_tiled, enhance_tiled_to_memmap, make_tile_plan
 
 
 def nearest_x4(tile: np.ndarray) -> np.ndarray:
@@ -36,6 +38,52 @@ class TilingTests(unittest.TestCase):
         self.assertEqual(plan.tile_count, 1)
         self.assertEqual(result.shape, (64, 96, 3))
         np.testing.assert_allclose(result, 0.25, atol=1e-6, rtol=0)
+
+    def test_disk_backed_matches_memory_compositor(self) -> None:
+        rng = np.random.default_rng(20260826)
+        image = rng.random((123, 211, 3), dtype=np.float32)
+        memory_result, memory_plan = enhance_tiled(
+            image, nearest_x4, tile_size=96, overlap=8, scale=4
+        )
+        expected = np.clip(np.rint(memory_result * 255.0), 0, 255).astype(np.uint8)
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path = Path(directory) / "result.rgb"
+            disk_result, disk_plan = enhance_tiled_to_memmap(
+                image,
+                nearest_x4,
+                raw_path,
+                tile_size=96,
+                overlap=8,
+                scale=4,
+            )
+            self.assertEqual(disk_plan, memory_plan)
+            self.assertEqual(disk_result.shape, expected.shape)
+            np.testing.assert_array_equal(disk_result, expected)
+            disk_result._mmap.close()
+
+    def test_disk_backed_removes_partial_output_after_failure(self) -> None:
+        image = np.zeros((123, 211, 3), dtype=np.float32)
+        calls = 0
+
+        def fail_after_first_tile(tile: np.ndarray) -> np.ndarray:
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                raise RuntimeError("injected inference failure")
+            return nearest_x4(tile)
+
+        with tempfile.TemporaryDirectory() as directory:
+            raw_path = Path(directory) / "partial.rgb"
+            with self.assertRaisesRegex(RuntimeError, "injected inference failure"):
+                enhance_tiled_to_memmap(
+                    image,
+                    fail_after_first_tile,
+                    raw_path,
+                    tile_size=96,
+                    overlap=8,
+                    scale=4,
+                )
+            self.assertFalse(raw_path.exists())
 
 
 if __name__ == "__main__":
