@@ -30,7 +30,8 @@ function showViewer(job){
 function jobMarkup(job){
   const error=job.state==="FAILED"?`<div class="job-meta">图片处理失败，请检查文件格式后重试</div>`:"";
   const actions=job.state==="COMPLETE"?`<button class="secondary view" data-id="${job.id}">查看</button><a class="button ghost" href="${job.output_url}" download>下载</a>`:"";
-  return `<article class="job"><div><div class="job-name">${escapeHtml(job.original_name)} <span class="status ${job.state}">${job.state}</span></div><div class="job-meta">${job.width}×${job.height} · ${dateText(job.created_at_utc)}</div>${error}</div><div class="job-actions">${actions}<button class="ghost delete" data-id="${job.id}" ${job.state==="RUNNING"?"disabled":""}>删除</button></div></article>`;
+  const deleteDisabled=job.state==="QUEUED"||job.state==="RUNNING";
+  return `<article class="job"><div><div class="job-name">${escapeHtml(job.original_name)} <span class="status ${job.state}">${job.state}</span></div><div class="job-meta">${job.width}×${job.height} · ${dateText(job.created_at_utc)}</div>${error}</div><div class="job-actions">${actions}<button class="ghost delete" data-id="${job.id}" ${deleteDisabled?"disabled":""}>删除</button></div></article>`;
 }
 function escapeHtml(value){const div=document.createElement("div");div.textContent=value??"";return div.innerHTML}
 function setComparePosition(value){const percent=Math.max(0,Math.min(100,Number(value)));$("original-layer").style.clipPath=`inset(0 ${100-percent}% 0 0)`;$("divider").style.left=`${percent}%`}

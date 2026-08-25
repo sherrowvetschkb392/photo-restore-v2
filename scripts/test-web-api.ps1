@@ -39,14 +39,20 @@ foreach ($Path in @($OutputPath, $ReportPath)) { if (Test-Path -LiteralPath $Pat
 Write-Output "Checking the deployed API version and safety limit..."
 $HealthText = Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error http://127.0.0.1:8080/api/health" } "Checking the API health endpoint"
 $Health = $HealthText | ConvertFrom-Json
-if ($Health.status -ne "ok" -or $Health.version -ne "0.3.1") {
-    throw "Expected healthy API version 0.3.1, received status='$($Health.status)' version='$($Health.version)'"
+if ($Health.status -ne "ok" -or $Health.version -ne "0.4.0") {
+    throw "Expected healthy API version 0.4.0, received status='$($Health.status)' version='$($Health.version)'"
 }
 if ([int64]$Health.max_input_pixels -ne 2000000) {
     throw "Public input limit changed unexpectedly: $($Health.max_input_pixels)"
 }
 if ([int64]$Health.preview_max_edge -ne 1600) {
     throw "Preview edge limit changed unexpectedly: $($Health.preview_max_edge)"
+}
+if ([int64]$Health.job_retention_seconds -ne 604800 -or [int64]$Health.max_storage_bytes -ne 4294967296 -or [int64]$Health.min_free_bytes -ne 2147483648 -or [int64]$Health.cleanup_interval_seconds -ne 900) {
+    throw "Storage retention configuration changed unexpectedly"
+}
+if ($null -eq $Health.last_cleanup.time_utc) {
+    throw "Storage retention did not run during API startup"
 }
 
 try {
@@ -116,7 +122,7 @@ try {
             $CleanupStateText = & ssh @SshOptions $SshHost "curl --fail --silent http://127.0.0.1:8080/api/jobs/${JobId}" 2>$null
             if ($LASTEXITCODE -eq 0 -and $null -ne $CleanupStateText) {
                 $CleanupState = (($CleanupStateText | ForEach-Object { "$_" }) -join "`n" | ConvertFrom-Json).state
-                if ($CleanupState -ne "RUNNING") {
+                if ($CleanupState -in @("COMPLETE", "FAILED")) {
                     & ssh @SshOptions $SshHost "curl --fail --silent -X DELETE http://127.0.0.1:8080/api/jobs/${JobId}" 2>$null | Out-Null
                 }
             }

@@ -24,7 +24,7 @@ board NPU, and return a verified restored image without requiring cloud access.
 | Large-photo public processing | Pending | Public limit remains 2,000,000 pixels until board memory/disk/time validation |
 | User-facing local/public UI and API | Complete | FastAPI, SQLite queue, browser UI, systemd and Cloudflare Access |
 | Persistent job history | Complete for current appliance | SQLite index, input/output/report downloads and per-job deletion |
-| Automatic retention and storage quotas | Pending | Manual deletion exists; age/space policies are not implemented |
+| Automatic retention and storage quotas | Complete | Terminal jobs are retained for 7 days by default; a 4 GiB job-storage quota and 2 GiB free-space reserve evict oldest terminal jobs without deleting queued/running work |
 
 ## Current image contract
 
@@ -61,8 +61,9 @@ board-side temporary job is removed after verified download unless
    rebooted. It was not an OOM, storage or thermal failure.
 3. Revisit larger inputs only after a runtime/driver upgrade or a worker design
    that releases and reinitializes RKNN between bounded tile batches.
-4. Add automatic age/free-space retention rules for long-running public use.
+4. Observe the deployed 7-day retention, 4 GiB quota and 2 GiB free-space
+   reserve under normal public use, then tune only from measured storage data.
 
 The current project is a working authenticated public appliance with a measured
-2 MP safety limit. Larger-photo stability and automatic retention are the
-remaining production gaps.
+2 MP safety limit and automatic storage retention. Larger-photo stability and
+operational monitoring are the remaining production gaps.

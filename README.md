@@ -119,3 +119,8 @@ systemd 服务和受 Cloudflare Access 保护的公网入口均已验证。下�
 ```powershell
 .\scripts\benchmark-large-image-direct.ps1 -Cleanup
 ```
+
+公网任务存储由 API 自动维护：已完成或失败的任务默认保留 7 天；任务目录达到
+4 GiB 或板端可用空间低于 2 GiB 时，从最旧的已结束任务开始回收。排队中和
+运行中的任务不会被自动删除。清理巡检默认每 15 分钟运行一次，所有参数均由
+`config\photo-restore-api.service` 固定并随部署同步。

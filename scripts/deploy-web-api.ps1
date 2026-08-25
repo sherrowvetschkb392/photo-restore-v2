@@ -10,6 +10,9 @@ $RemoteApp = "${RemoteRoot}/app/backend"
 $Python = "${RemoteRoot}/venv/bin/python"
 $RemoteWorker = "${RemoteRoot}/app/worker"
 $RemoteFrontend = "${RemoteRoot}/app/frontend"
+$UnitSource = Join-Path $ProjectRoot "config\photo-restore-api.service"
+$RemoteUnitUpload = "${RemoteApp}/photo-restore-api.service.uploading"
+$RemoteServerTest = "${RemoteRoot}/storage/tmp/test-server-uploading.py"
 
 function Invoke-NativeChecked {
     param([scriptblock]$Command, [string]$Description)
@@ -38,6 +41,8 @@ Invoke-NativeChecked { ssh @SshOptions $SshHost "mkdir -p '${RemoteApp}' '${Remo
 Write-Output "Uploading API source and pinned requirements..."
 Invoke-NativeChecked { scp @SshOptions (Join-Path $ProjectRoot "apps\server\app.py") "${SshHost}:${RemoteApp}/app.py" } "Uploading the API source"
 Invoke-NativeChecked { scp @SshOptions (Join-Path $ProjectRoot "requirements-server.txt") "${SshHost}:${RemoteApp}/requirements-server.txt" } "Uploading API requirements"
+Invoke-NativeChecked { scp @SshOptions $UnitSource "${SshHost}:${RemoteUnitUpload}" } "Uploading the API systemd unit"
+Invoke-NativeChecked { scp @SshOptions (Join-Path $ProjectRoot "tests\test_server.py") "${SshHost}:${RemoteServerTest}" } "Uploading isolated API tests"
 foreach ($WorkerFile in @("restore_image.py", "tiling.py")) {
     Invoke-NativeChecked { scp @SshOptions (Join-Path $ProjectRoot "apps\worker\$WorkerFile") "${SshHost}:${RemoteWorker}/${WorkerFile}" } "Uploading worker file $WorkerFile"
 }
@@ -47,8 +52,10 @@ foreach ($FrontendFile in @("index.html", "app.css", "app.js")) {
 
 Write-Output "Installing the pinned API dependencies into the project venv..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "'${Python}' -m pip install -r '${RemoteApp}/requirements-server.txt'" } "Installing the API dependencies"
-Invoke-NativeChecked { ssh @SshOptions $SshHost "PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -m py_compile '${RemoteApp}/app.py' '${RemoteWorker}/restore_image.py' '${RemoteWorker}/tiling.py'; cd '${RemoteApp}' && PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -c 'import app as module; from PIL import Image; module.initialize(); assert len(module.app.routes) >= 11; assert module.PREVIEW_MAX_EDGE == 1600; assert len(module.PUBLIC_PROCESSING_ERROR) < 100; assert not any(ord(c) in (47,92) for c in module.PUBLIC_PROCESSING_ERROR); source=module.STORAGE/bytes((116,109,112)).decode(); input_path=source/bytes((112,114,101,118,105,101,119,45,99,104,101,99,107,46,112,110,103)).decode(); output_path=source/bytes((112,114,101,118,105,101,119,45,99,104,101,99,107,46,106,112,103)).decode(); Image.new(bytes((82,71,66)).decode(),(32,24)).save(input_path); module.create_preview(input_path,output_path); assert output_path.is_file(); input_path.unlink(); output_path.unlink(); print(module.health())'" } "Checking API routes, preview generation, error sanitization, worker and database"
-Invoke-NativeChecked { ssh @SshOptions $SshHost "if systemctl is-active --quiet photo-restore-api.service; then sudo systemctl restart photo-restore-api.service; fi" } "Restarting the API service after deployment"
+Invoke-NativeChecked { ssh @SshOptions $SshHost "compile_code=0; '${Python}' -m py_compile '${RemoteApp}/app.py' '${RemoteWorker}/restore_image.py' '${RemoteWorker}/tiling.py' '${RemoteServerTest}' || compile_code=`$?; test_code=0; PHOTO_RESTORE_SERVER_SOURCE='${RemoteApp}/app.py' '${Python}' '${RemoteServerTest}' -v || test_code=`$?; rm -f '${RemoteServerTest}'; test `"`$compile_code`" -eq 0 && test `"`$test_code`" -eq 0" } "Running isolated API retention, preview, safety and database tests"
+
+Write-Output "Installing the versioned API service configuration..."
+Invoke-NativeChecked { ssh @SshOptions $SshHost "sudo install -o root -g root -m 0644 '${RemoteUnitUpload}' /etc/systemd/system/photo-restore-api.service; rm -f '${RemoteUnitUpload}'; sudo systemctl daemon-reload; sudo systemctl enable photo-restore-api.service; sudo systemctl restart photo-restore-api.service" } "Installing and restarting the API service"
 
 Write-Output "Waiting for the deployed API to become healthy..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "for wait_step in 1 2 3 4 5 6 7 8 9 10; do if curl --fail --silent http://127.0.0.1:8080/api/health; then exit 0; fi; sleep 1; done; exit 1" } "Checking the deployed API health endpoint"

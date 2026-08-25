@@ -14,7 +14,7 @@ import tempfile
 import threading
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-SERVICE_VERSION = "0.3.1"
+SERVICE_VERSION = "0.4.0"
 ROOT = Path(os.environ.get("PHOTO_RESTORE_ROOT", "/userdata/photo-restore-v2"))
 STORAGE = ROOT / "storage"
 DATABASE = ROOT / "database" / "jobs.sqlite3"
@@ -33,10 +33,31 @@ PYTHON = ROOT / "venv" / "bin" / "python"
 MAX_UPLOAD_BYTES = int(os.environ.get("PHOTO_RESTORE_MAX_UPLOAD_BYTES", 20 * 1024 * 1024))
 MAX_INPUT_PIXELS = int(os.environ.get("PHOTO_RESTORE_MAX_INPUT_PIXELS", 2_000_000))
 PREVIEW_MAX_EDGE = int(os.environ.get("PHOTO_RESTORE_PREVIEW_MAX_EDGE", 1600))
+JOB_RETENTION_SECONDS = max(
+    0, int(os.environ.get("PHOTO_RESTORE_JOB_RETENTION_SECONDS", 7 * 24 * 3600))
+)
+MAX_STORAGE_BYTES = max(
+    0, int(os.environ.get("PHOTO_RESTORE_MAX_STORAGE_BYTES", 4 * 1024**3))
+)
+MIN_FREE_BYTES = max(
+    0, int(os.environ.get("PHOTO_RESTORE_MIN_FREE_BYTES", 2 * 1024**3))
+)
+CLEANUP_INTERVAL_SECONDS = max(
+    10, int(os.environ.get("PHOTO_RESTORE_CLEANUP_INTERVAL_SECONDS", 15 * 60))
+)
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 JOB_QUEUE: queue.Queue[str] = queue.Queue()
 STOP = threading.Event()
 WORKER_THREAD: threading.Thread | None = None
+CLEANUP_THREAD: threading.Thread | None = None
+STORAGE_LOCK = threading.RLock()
+LAST_CLEANUP: dict[str, object] = {
+    "time_utc": None,
+    "deleted_jobs": 0,
+    "deleted_bytes": 0,
+    "storage_used_bytes": 0,
+    "storage_free_bytes": 0,
+}
 PUBLIC_PROCESSING_ERROR = "图片处理失败，请检查文件格式后重试"
 
 
@@ -51,7 +72,14 @@ def connect() -> sqlite3.Connection:
 
 
 def initialize() -> None:
-    for path in (STORAGE / "incoming", STORAGE / "jobs", STORAGE / "outputs", STORAGE / "reports", STORAGE / "tmp", DATABASE.parent):
+    for path in (
+        STORAGE / "incoming",
+        STORAGE / "jobs",
+        STORAGE / "outputs",
+        STORAGE / "reports",
+        STORAGE / "tmp",
+        DATABASE.parent,
+    ):
         path.mkdir(parents=True, exist_ok=True)
     with connect() as connection:
         connection.execute("PRAGMA journal_mode=WAL")
@@ -68,6 +96,118 @@ def initialize() -> None:
             if name not in columns:
                 connection.execute(f"ALTER TABLE jobs ADD COLUMN {name} {sql_type}")
         connection.execute("UPDATE jobs SET state='QUEUED', error=NULL, updated_at_utc=? WHERE state='RUNNING'", (utc_now(),))
+
+
+def tree_size(path: Path) -> int:
+    total = 0
+    if not path.exists():
+        return total
+    for root, directories, files in os.walk(path, followlinks=False):
+        root_path = Path(root)
+        directories[:] = [
+            name for name in directories if not (root_path / name).is_symlink()
+        ]
+        for name in files:
+            file_path = root_path / name
+            try:
+                if file_path.is_symlink():
+                    continue
+                total += file_path.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def job_directory(row: sqlite3.Row) -> Path:
+    directory = Path(row["input_path"]).parent.resolve(strict=False)
+    jobs_root = (STORAGE / "jobs").resolve(strict=False)
+    if directory == jobs_root or jobs_root not in directory.parents:
+        raise RuntimeError(f"unsafe job directory: {directory}")
+    return directory
+
+
+def parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def cleanup_storage(
+    now: datetime | None = None, *, required_bytes: int = 0
+) -> dict[str, object]:
+    global LAST_CLEANUP
+    with STORAGE_LOCK:
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        cutoff = current - timedelta(seconds=JOB_RETENTION_SECONDS)
+        used_bytes = tree_size(STORAGE)
+        free_bytes = shutil.disk_usage(STORAGE).free
+        deleted_jobs = 0
+        deleted_bytes = 0
+        with connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM jobs WHERE state IN ('COMPLETE','FAILED') "
+                "ORDER BY updated_at_utc ASC"
+            ).fetchall()
+            for row in rows:
+                try:
+                    expired = (
+                        JOB_RETENTION_SECONDS == 0
+                        or parse_utc(row["updated_at_utc"]) <= cutoff
+                    )
+                except (TypeError, ValueError):
+                    expired = True
+                over_quota = (
+                    MAX_STORAGE_BYTES > 0
+                    and used_bytes + required_bytes > MAX_STORAGE_BYTES
+                )
+                low_space = (
+                    MIN_FREE_BYTES > 0
+                    and free_bytes < MIN_FREE_BYTES + required_bytes
+                )
+                if not (expired or over_quota or low_space):
+                    continue
+                try:
+                    directory = job_directory(row)
+                except RuntimeError:
+                    continue
+                job_bytes = tree_size(directory)
+                shutil.rmtree(directory, ignore_errors=True)
+                if directory.exists():
+                    continue
+                connection.execute("DELETE FROM jobs WHERE id=?", (row["id"],))
+                deleted_jobs += 1
+                deleted_bytes += job_bytes
+                used_bytes = max(0, used_bytes - job_bytes)
+                free_bytes = shutil.disk_usage(STORAGE).free
+        LAST_CLEANUP = {
+            "time_utc": current.isoformat(),
+            "deleted_jobs": deleted_jobs,
+            "deleted_bytes": deleted_bytes,
+            "storage_used_bytes": used_bytes,
+            "storage_free_bytes": free_bytes,
+        }
+        return dict(LAST_CLEANUP)
+
+
+def ensure_upload_capacity(required_bytes: int = 0) -> int:
+    summary = cleanup_storage(required_bytes=max(0, required_bytes))
+    used_bytes = int(summary["storage_used_bytes"])
+    free_bytes = int(summary["storage_free_bytes"])
+    if MAX_STORAGE_BYTES > 0 and used_bytes + required_bytes > MAX_STORAGE_BYTES:
+        raise HTTPException(status_code=507, detail="server storage quota is full")
+    if MIN_FREE_BYTES > 0 and free_bytes < MIN_FREE_BYTES + required_bytes:
+        raise HTTPException(status_code=507, detail="server storage reserve is low")
+    return used_bytes
+
+
+def cleanup_loop() -> None:
+    while not STOP.wait(CLEANUP_INTERVAL_SECONDS):
+        try:
+            cleanup_storage()
+        except (OSError, sqlite3.Error):
+            # Retention failures must not terminate the API or NPU worker.
+            pass
 
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, object]:
@@ -180,6 +320,10 @@ def worker_loop() -> None:
             set_state(job_id, "FAILED", PUBLIC_PROCESSING_ERROR)
         finally:
             JOB_QUEUE.task_done()
+            try:
+                cleanup_storage()
+            except (OSError, sqlite3.Error):
+                pass
 
 
 def enqueue_existing() -> None:
@@ -203,11 +347,17 @@ def index() -> FileResponse:
 
 @app.on_event("startup")
 def startup() -> None:
-    global WORKER_THREAD
+    global CLEANUP_THREAD, WORKER_THREAD
+    STOP.clear()
     initialize()
+    cleanup_storage()
     enqueue_existing()
     WORKER_THREAD = threading.Thread(target=worker_loop, name="npu-worker", daemon=True)
     WORKER_THREAD.start()
+    CLEANUP_THREAD = threading.Thread(
+        target=cleanup_loop, name="storage-cleanup", daemon=True
+    )
+    CLEANUP_THREAD.start()
 
 
 @app.on_event("shutdown")
@@ -225,7 +375,27 @@ def health() -> dict[str, object]:
     except sqlite3.Error:
         pass
     ready = database_ok and MODEL.is_file() and WORKER.is_file() and (FRONTEND / "index.html").is_file()
-    return {"status": "ok" if ready else "degraded", "service": "photo-restore-v2", "version": SERVICE_VERSION, "time_utc": utc_now(), "python": platform.python_version(), "architecture": platform.machine(), "database_ready": database_ok, "model_ready": MODEL.is_file(), "worker_ready": WORKER.is_file(), "frontend_ready": (FRONTEND / "index.html").is_file(), "queue_size": JOB_QUEUE.qsize(), "max_upload_bytes": MAX_UPLOAD_BYTES, "max_input_pixels": MAX_INPUT_PIXELS, "preview_max_edge": PREVIEW_MAX_EDGE}
+    return {
+        "status": "ok" if ready else "degraded",
+        "service": "photo-restore-v2",
+        "version": SERVICE_VERSION,
+        "time_utc": utc_now(),
+        "python": platform.python_version(),
+        "architecture": platform.machine(),
+        "database_ready": database_ok,
+        "model_ready": MODEL.is_file(),
+        "worker_ready": WORKER.is_file(),
+        "frontend_ready": (FRONTEND / "index.html").is_file(),
+        "queue_size": JOB_QUEUE.qsize(),
+        "max_upload_bytes": MAX_UPLOAD_BYTES,
+        "max_input_pixels": MAX_INPUT_PIXELS,
+        "preview_max_edge": PREVIEW_MAX_EDGE,
+        "job_retention_seconds": JOB_RETENTION_SECONDS,
+        "max_storage_bytes": MAX_STORAGE_BYTES,
+        "min_free_bytes": MIN_FREE_BYTES,
+        "cleanup_interval_seconds": CLEANUP_INTERVAL_SECONDS,
+        "last_cleanup": dict(LAST_CLEANUP),
+    }
 
 
 @app.post("/api/jobs", status_code=202)
@@ -234,36 +404,47 @@ def create_job(file: UploadFile = File(...)) -> dict[str, object]:
     extension = Path(original_name).suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=415, detail="only PNG and JPEG are supported")
-    job_id = uuid.uuid4().hex
-    job_dir = STORAGE / "jobs" / job_id
-    job_dir.mkdir(parents=True)
-    input_path, output_path, report_path = job_dir / f"input{extension}", job_dir / "output.png", job_dir / "report.json"
-    size = 0
-    digest = hashlib.sha256()
-    try:
-        with input_path.open("xb") as stream:
-            while chunk := file.file.read(1024 * 1024):
-                size += len(chunk)
-                if size > MAX_UPLOAD_BYTES:
-                    raise HTTPException(status_code=413, detail="upload exceeds size limit")
-                digest.update(chunk)
-                stream.write(chunk)
-        with Image.open(input_path) as image:
-            image.verify()
-        with Image.open(input_path) as image:
-            width, height = image.size
-        if width * height > MAX_INPUT_PIXELS:
-            raise HTTPException(status_code=413, detail=f"image has {width * height} pixels; limit is {MAX_INPUT_PIXELS}")
-        create_preview(input_path, job_dir / "input-preview.jpg")
-    except (UnidentifiedImageError, OSError) as exc:
-        shutil.rmtree(job_dir, ignore_errors=True)
-        raise HTTPException(status_code=415, detail="uploaded file is not a valid PNG/JPEG") from exc
-    except Exception:
-        shutil.rmtree(job_dir, ignore_errors=True)
-        raise
-    now = utc_now()
-    with connect() as connection:
-        connection.execute("INSERT INTO jobs (id,state,original_name,input_path,output_path,report_path,error,input_sha256,width,height,created_at_utc,updated_at_utc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (job_id, "QUEUED", original_name, str(input_path), str(output_path), str(report_path), None, digest.hexdigest(), width, height, now, now))
+    with STORAGE_LOCK:
+        existing_storage_bytes = ensure_upload_capacity(MAX_UPLOAD_BYTES)
+        job_id = uuid.uuid4().hex
+        job_dir = STORAGE / "jobs" / job_id
+        job_dir.mkdir(parents=True)
+        input_path = job_dir / f"input{extension}"
+        output_path, report_path = job_dir / "output.png", job_dir / "report.json"
+        size = 0
+        digest = hashlib.sha256()
+        try:
+            with input_path.open("xb") as stream:
+                while chunk := file.file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > MAX_UPLOAD_BYTES:
+                        raise HTTPException(status_code=413, detail="upload exceeds size limit")
+                    if MAX_STORAGE_BYTES > 0 and existing_storage_bytes + size > MAX_STORAGE_BYTES:
+                        raise HTTPException(status_code=507, detail="upload exceeds server storage quota")
+                    if MIN_FREE_BYTES > 0 and shutil.disk_usage(STORAGE).free < MIN_FREE_BYTES:
+                        raise HTTPException(status_code=507, detail="server storage reserve is low")
+                    digest.update(chunk)
+                    stream.write(chunk)
+            with Image.open(input_path) as image:
+                image.verify()
+            with Image.open(input_path) as image:
+                width, height = image.size
+            if width * height > MAX_INPUT_PIXELS:
+                raise HTTPException(status_code=413, detail=f"image has {width * height} pixels; limit is {MAX_INPUT_PIXELS}")
+            # Reserve space for the raw 4x RGB memmap and a worst-case full
+            # output copy before the NPU job enters the queue.
+            processing_reserve_bytes = width * height * 16 * 3 * 2
+            ensure_upload_capacity(processing_reserve_bytes)
+            create_preview(input_path, job_dir / "input-preview.jpg")
+        except (UnidentifiedImageError, OSError) as exc:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise HTTPException(status_code=415, detail="uploaded file is not a valid PNG/JPEG") from exc
+        except Exception:
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise
+        now = utc_now()
+        with connect() as connection:
+            connection.execute("INSERT INTO jobs (id,state,original_name,input_path,output_path,report_path,error,input_sha256,width,height,created_at_utc,updated_at_utc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (job_id, "QUEUED", original_name, str(input_path), str(output_path), str(report_path), None, digest.hexdigest(), width, height, now, now))
     JOB_QUEUE.put(job_id)
     return row_to_dict(get_job(job_id))
 
@@ -319,10 +500,14 @@ def job_report(job_id: str) -> FileResponse:
 
 @app.delete("/api/jobs/{job_id}")
 def delete_job(job_id: str) -> dict[str, object]:
-    row = get_job(job_id)
-    if row["state"] == "RUNNING":
-        raise HTTPException(status_code=409, detail="a running job cannot be deleted")
-    with connect() as connection:
-        connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
-    shutil.rmtree(Path(row["input_path"]).parent, ignore_errors=True)
+    with STORAGE_LOCK:
+        row = get_job(job_id)
+        if row["state"] in {"QUEUED", "RUNNING"}:
+            raise HTTPException(status_code=409, detail="an active job cannot be deleted")
+        directory = job_directory(row)
+        shutil.rmtree(directory, ignore_errors=True)
+        if directory.exists():
+            raise HTTPException(status_code=500, detail="job files could not be deleted")
+        with connect() as connection:
+            connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
     return {"deleted": True, "job_id": job_id}
