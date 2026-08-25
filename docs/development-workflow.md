@@ -68,6 +68,48 @@ This phase validates color, padding, tile alignment and seams. Production-size
 photos require a later stripe/disk-backed compositor before the limit is
 raised.
 
+After the prototype passes, restore one real photo from PowerShell:
+
+```powershell
+.\scripts\restore-photo.ps1 -InputImage "C:\path\to\photo.jpg"
+```
+
+The command checks the isolated board environment, uploads the fixed tile96
+worker and input, runs NPU restoration, and downloads both the image and JSON
+report. Its default local destination is `benchmarks\restored\`.
+After both files download successfully, the board-side job artifacts are
+removed by default. Pass `-KeepRemoteArtifacts` only when board-side debugging
+is needed.
+
+## Validation dataset isolation
+
+Downloaded validation sources must be stored in
+`data/validation/<dataset-name>/raw/`; generated results go to
+`benchmarks/validation/<dataset-name>/`. Both trees are ignored by Git. Source,
+license and checksum metadata is versioned separately under
+`datasets/manifests/`.
+
+Run an isolated set of up to eight images with:
+
+```powershell
+.\scripts\restore-validation-set.ps1 -DatasetName "public-domain-history"
+```
+
+The batch command initializes the board once, processes files sequentially,
+cleans each completed board job, and writes a local `summary.json`.
+Verified local results are skipped on rerun. Board inference runs as a detached
+job with status files, so an SSH reset does not terminate NPU processing; the
+Windows command reconnects and resumes result collection automatically.
+Use `-RestartDataset` to remove only that dataset's generated `*-x4.png`,
+`*-report.json` and `summary.json` files before a clean run. Raw inputs,
+download archives, manifests and the candidate review sheet are preserved.
+
+The dataset path uses a single-transfer batch protocol: Windows validates and
+packages all inputs once, the board runs one detached sequential process, and
+Windows downloads one result archive. Status polling is the only repeated SSH
+operation. This avoids per-image environment checks, worker uploads and result
+transfers, and keeps NPU work alive through a transient SSH disconnect.
+
 The command performs these stages and stops immediately on a failed stage:
 
 1. synchronize versioned Python tools into WSL;

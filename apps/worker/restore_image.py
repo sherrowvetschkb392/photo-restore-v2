@@ -163,7 +163,7 @@ def main() -> int:
     inference_seconds = time.perf_counter() - inference_started
 
     output_array = np.clip(np.rint(restored * 255.0), 0, 255).astype(np.uint8)
-    output_image = Image.fromarray(output_array, mode="RGB")
+    output_image = Image.fromarray(output_array)
     atomic_save(output_image, args.output, args.jpeg_quality)
     total_seconds = time.perf_counter() - total_started
 
@@ -192,4 +192,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -1,0 +1,92 @@
+{
+  "dataset": "div2k-x4-sample",
+  "retrieved_at_utc": "2026-08-25T13:03:21.407131+00:00",
+  "description": "Eight representative LR bicubic x4 images selected from the official DIV2K validation archive for local RK3588 engineering validation.",
+  "archive": {
+    "filename": "DIV2K_valid_LR_bicubic_X4.zip",
+    "sha256": "a50a5d1c4b88de4e8d300d8fb2b904c52fe93b2b298a4899697760d7cbb6d553",
+    "bytes": 31505881
+  },
+  "items": [
+    {
+      "filename": "0810x4.png",
+      "source_page_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "asset_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_LR_bicubic_X4.zip",
+      "creator": "DIV2K dataset contributors; individual image attribution is not included in the archive",
+      "license": "Upstream archive does not include a license file; retained locally for research validation only and not redistributed",
+      "license_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "sha256": "3692b3a85e88114e1466af5c82d942132dd92eabfb0729eaa9e2a0d1f1103cda",
+      "notes": "LR bicubic x4 validation image; size=510x384; mean=111.58; contrast=35.77"
+    },
+    {
+      "filename": "0846x4.png",
+      "source_page_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "asset_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_LR_bicubic_X4.zip",
+      "creator": "DIV2K dataset contributors; individual image attribution is not included in the archive",
+      "license": "Upstream archive does not include a license file; retained locally for research validation only and not redistributed",
+      "license_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "sha256": "1ed26d96cbd5885f73dfdffbebbe9a048276036bf050c435a4da190199a932a0",
+      "notes": "LR bicubic x4 validation image; size=510x342; mean=135.78; contrast=89.76"
+    },
+    {
+      "filename": "0852x4.png",
+      "source_page_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "asset_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_LR_bicubic_X4.zip",
+      "creator": "DIV2K dataset contributors; individual image attribution is not included in the archive",
+      "license": "Upstream archive does not include a license file; retained locally for research validation only and not redistributed",
+      "license_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "sha256": "9ed47f3f206ed9a95f3cbcdf9e791c1b6cdbdc84b4f8dac9cf12d25e78b2cea8",
+      "notes": "LR bicubic x4 validation image; size=510x288; mean=13.90; contrast=16.79"
+    },
+    {
+      "filename": "0855x4.png",
+      "source_page_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "asset_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_LR_bicubic_X4.zip",
+      "creator": "DIV2K dataset contributors; individual image attribution is not included in the archive",
+      "license": "Upstream archive does not include a license file; retained locally for research validation only and not redistributed",
+      "license_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "sha256": "fca54c82f8f9c70cd7c9540af9aecf69de68ad64f71f0de18190e3b85dc07458",
+      "notes": "LR bicubic x4 validation image; size=510x510; mean=117.16; contrast=57.13"
+    },
+    {
+      "filename": "0863x4.png",
+      "source_page_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "asset_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_LR_bicubic_X4.zip",
+      "creator": "DIV2K dataset contributors; individual image attribution is not included in the archive",
+      "license": "Upstream archive does not include a license file; retained locally for research validation only and not redistributed",
+      "license_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "sha256": "28ddd52fce9820e3c407c6b60796f2036bdce3a7cdf67b53476816303be14c5c",
+      "notes": "LR bicubic x4 validation image; size=375x510; mean=140.17; contrast=70.44"
+    },
+    {
+      "filename": "0868x4.png",
+      "source_page_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "asset_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_LR_bicubic_X4.zip",
+      "creator": "DIV2K dataset contributors; individual image attribution is not included in the archive",
+      "license": "Upstream archive does not include a license file; retained locally for research validation only and not redistributed",
+      "license_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "sha256": "6b8edff8649503101de5ca248c5474e7818b50e20981b84bb8c5337b28852fe3",
+      "notes": "LR bicubic x4 validation image; size=510x339; mean=202.34; contrast=48.57"
+    },
+    {
+      "filename": "0880x4.png",
+      "source_page_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "asset_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_LR_bicubic_X4.zip",
+      "creator": "DIV2K dataset contributors; individual image attribution is not included in the archive",
+      "license": "Upstream archive does not include a license file; retained locally for research validation only and not redistributed",
+      "license_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "sha256": "440e39c8b1d1b668314a4acbe618c207d0e59e70891dd58d8b010888774e4cf2",
+      "notes": "LR bicubic x4 validation image; size=339x510; mean=114.96; contrast=36.94"
+    },
+    {
+      "filename": "0894x4.png",
+      "source_page_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "asset_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_LR_bicubic_X4.zip",
+      "creator": "DIV2K dataset contributors; individual image attribution is not included in the archive",
+      "license": "Upstream archive does not include a license file; retained locally for research validation only and not redistributed",
+      "license_url": "https://data.vision.ee.ethz.ch/cvl/DIV2K/",
+      "sha256": "f189a5a28a23608791f625156cd065e54406f62f70f626c18fd2d52575c5702f",
+      "notes": "LR bicubic x4 validation image; size=339x510; mean=172.87; contrast=55.26"
+    }
+  ]
+}

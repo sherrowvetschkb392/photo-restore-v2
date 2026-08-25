@@ -1,4 +1,6 @@
 param(
+    [string]$Distribution = "Ubuntu",
+    [string]$CondaEnvironment = "photo-restore-rknn232",
     [string]$SshHost = "rk3588",
     [string]$RemoteRoot = "/userdata/photo-restore-v2"
 )
@@ -18,6 +20,48 @@ $InputImage = Join-Path $LocalInputDirectory "prototype-173x131.png"
 $LocalOutputDirectory = Join-Path $ProjectRoot "benchmarks\prototype"
 $LocalOutput = Join-Path $LocalOutputDirectory "prototype-173x131-x4.png"
 $LocalReport = Join-Path $LocalOutputDirectory "prototype-173x131-report.json"
+$RemoteModel = "${RemoteRoot}/models/realesrgan_x4plus_tile96_fp16.rknn"
+
+function Invoke-NativeChecked {
+    param([scriptblock]$Command, [string]$Description)
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $Command
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    if ($ExitCode -ne 0) {
+        throw "$Description failed with exit code $ExitCode"
+    }
+}
+
+function Invoke-NativeRetry {
+    param([scriptblock]$Command, [string]$Description, [int]$Attempts = 3)
+    for ($Attempt = 1; $Attempt -le $Attempts; $Attempt++) {
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            & $Command
+            $ExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+        if ($ExitCode -eq 0) { return }
+        if ($Attempt -eq $Attempts) {
+            throw "$Description failed after $Attempts attempts; last exit code $ExitCode"
+        }
+        Write-Warning "$Description failed on attempt $Attempt; retrying..."
+        Start-Sleep -Seconds (2 * $Attempt)
+    }
+}
+
+foreach ($RequiredCommand in @("wsl", "ssh", "scp")) {
+    if (-not (Get-Command $RequiredCommand -ErrorAction SilentlyContinue)) {
+        throw "Required command is unavailable: $RequiredCommand"
+    }
+}
 
 foreach ($File in $Files) {
     if (-not (Test-Path -LiteralPath $File.Local -PathType Leaf)) {
@@ -39,42 +83,47 @@ function Convert-ToWslPath([string]$WindowsPath) {
     return "/mnt/${Drive}/${RelativePath}"
 }
 
-& $CoreTestScript
-if ($LASTEXITCODE -ne 0) { throw "Image core tests failed" }
+& $CoreTestScript -Distribution $Distribution -CondaEnvironment $CondaEnvironment
 & $DependencyScript -SshHost $SshHost -RemoteRoot $RemoteRoot
-if ($LASTEXITCODE -ne 0) { throw "Board image dependency setup failed" }
+
+Invoke-NativeChecked {
+    ssh @SshOptions $SshHost "test -f '${RemoteModel}' && test -x '${RemoteRoot}/venv/bin/python'"
+} "Checking the selected RKNN model and board Python"
 
 $WslGenerator = Convert-ToWslPath $Generator
 $WslInput = Convert-ToWslPath $InputImage
-wsl -d Ubuntu -- bash -lc "source /home/ljd/miniconda3/etc/profile.d/conda.sh && conda activate photo-restore-rknn232 && python '${WslGenerator}' --output '${WslInput}'"
-if ($LASTEXITCODE -ne 0) { throw "Generating prototype image failed" }
+Invoke-NativeChecked {
+    wsl -d $Distribution -- bash -lc "set -e; source /home/ljd/miniconda3/etc/profile.d/conda.sh; conda activate '${CondaEnvironment}'; python '${WslGenerator}' --output '${WslInput}'"
+} "Generating prototype image"
 
-ssh @SshOptions $SshHost "mkdir -p '${RemoteRoot}/repo' '${RemoteRoot}/data/prototype/input' '${RemoteRoot}/data/prototype/output' '${RemoteRoot}/benchmarks'"
-if ($LASTEXITCODE -ne 0) { throw "Creating remote prototype directories failed" }
+Invoke-NativeChecked {
+    ssh @SshOptions $SshHost "mkdir -p '${RemoteRoot}/repo' '${RemoteRoot}/data/prototype/input' '${RemoteRoot}/data/prototype/output' '${RemoteRoot}/benchmarks'"
+} "Creating remote prototype directories"
 
 foreach ($File in $Files) {
-    scp @SshOptions $File.Local "${SshHost}:$($File.Remote)"
-    if ($LASTEXITCODE -ne 0) { throw "Uploading $($File.Local) failed" }
+    Invoke-NativeRetry {
+        scp @SshOptions $File.Local "${SshHost}:$($File.Remote)"
+    } "Uploading $($File.Local)"
 }
 
-ssh @SshOptions $SshHost "chmod 755 '${RemoteRoot}/repo/restore_image.py' && '${RemoteRoot}/venv/bin/python' -m py_compile '${RemoteRoot}/repo/tiling.py' '${RemoteRoot}/repo/restore_image.py'"
-if ($LASTEXITCODE -ne 0) { throw "Board prototype syntax check failed" }
+Invoke-NativeChecked {
+    ssh @SshOptions $SshHost "chmod 755 '${RemoteRoot}/repo/restore_image.py' && '${RemoteRoot}/venv/bin/python' -m py_compile '${RemoteRoot}/repo/tiling.py' '${RemoteRoot}/repo/restore_image.py'"
+} "Checking board prototype syntax"
 
-ssh @SshOptions $SshHost "'${RemoteRoot}/venv/bin/python' -c 'import numpy; from PIL import Image; from rknnlite.api import RKNNLite; print(\"BOARD_IMAGE_DEPS_OK\")'"
-if ($LASTEXITCODE -ne 0) {
-    throw "Board image dependencies are incomplete. Install Pillow in the project venv before continuing."
-}
+Invoke-NativeRetry {
+    scp @SshOptions $InputImage "${SshHost}:${RemoteRoot}/data/prototype/input/prototype-173x131.png"
+} "Uploading prototype input"
 
-scp @SshOptions $InputImage "${SshHost}:${RemoteRoot}/data/prototype/input/prototype-173x131.png"
-if ($LASTEXITCODE -ne 0) { throw "Uploading prototype input failed" }
+Invoke-NativeChecked {
+    ssh @SshOptions $SshHost "'${RemoteRoot}/venv/bin/python' '${RemoteRoot}/repo/restore_image.py' --input '${RemoteRoot}/data/prototype/input/prototype-173x131.png' --output '${RemoteRoot}/data/prototype/output/prototype-173x131-x4.png' --model '${RemoteModel}' --report '${RemoteRoot}/benchmarks/prototype-173x131-report.json'"
+} "Running board prototype restoration"
 
-ssh @SshOptions $SshHost "'${RemoteRoot}/venv/bin/python' '${RemoteRoot}/repo/restore_image.py' --input '${RemoteRoot}/data/prototype/input/prototype-173x131.png' --output '${RemoteRoot}/data/prototype/output/prototype-173x131-x4.png' --model '${RemoteRoot}/models/realesrgan_x4plus_tile96_fp16.rknn' --report '${RemoteRoot}/benchmarks/prototype-173x131-report.json'"
-if ($LASTEXITCODE -ne 0) { throw "Board prototype restoration failed" }
-
-scp @SshOptions "${SshHost}:${RemoteRoot}/data/prototype/output/prototype-173x131-x4.png" $LocalOutput
-if ($LASTEXITCODE -ne 0) { throw "Downloading prototype output failed" }
-scp @SshOptions "${SshHost}:${RemoteRoot}/benchmarks/prototype-173x131-report.json" $LocalReport
-if ($LASTEXITCODE -ne 0) { throw "Downloading prototype report failed" }
+Invoke-NativeRetry {
+    scp @SshOptions "${SshHost}:${RemoteRoot}/data/prototype/output/prototype-173x131-x4.png" $LocalOutput
+} "Downloading prototype output"
+Invoke-NativeRetry {
+    scp @SshOptions "${SshHost}:${RemoteRoot}/benchmarks/prototype-173x131-report.json" $LocalReport
+} "Downloading prototype report"
 
 Write-Output "Input: $InputImage"
 Write-Output "Output: $LocalOutput"
