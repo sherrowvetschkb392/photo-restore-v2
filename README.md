@@ -11,6 +11,7 @@
 - `tests/`：自动化测试
 - `docs/`：设计与部署文档
 - `benchmarks/`：本地基准结果（结果文件不进入 Git）
+- `config/`：不含密钥的配置模板
 
 旧板端项目不在本项目范围内。本项目板端根目录固定为：
 
@@ -18,3 +19,15 @@
 /userdata/photo-restore-v2
 ```
 
+## 板端环境基线
+
+- Debian 11 / aarch64 / Python 3.9
+- RKNN NPU driver 0.9.2
+- RKNN Runtime 2.3.2
+- RKNNLite2 2.3.2（仅安装到项目虚拟环境）
+
+运行只读 Runtime 检查：
+
+```powershell
+.\scripts\deploy-runtime-check.ps1
+```
