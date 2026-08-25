@@ -55,6 +55,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--onnx", type=Path, required=True)
     parser.add_argument("--target", default="rk3588")
+    parser.add_argument("--tile-size", type=int, required=True)
     return parser.parse_args()
 
 
@@ -139,9 +140,16 @@ def main() -> int:
             "nodes": len(model.graph.node),
             "op_types": sorted({node.op_type for node in model.graph.node}),
         }
-        if input_shape != [1, 3, 64, 64]:
+        expected_input_shape = [1, 3, args.tile_size, args.tile_size]
+        expected_output_shape = [
+            1,
+            3,
+            args.tile_size * 4,
+            args.tile_size * 4,
+        ]
+        if input_shape != expected_input_shape:
             errors.append(f"unexpected ONNX input shape: {input_shape}")
-        if output_shape != [1, 3, 256, 256]:
+        if output_shape != expected_output_shape:
             errors.append(f"unexpected ONNX output shape: {output_shape}")
 
     disk = shutil.disk_usage(Path.home())

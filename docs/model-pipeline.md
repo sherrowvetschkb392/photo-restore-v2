@@ -49,6 +49,15 @@ exceeds `0.001`.
 - RKNN vs ONNX mean absolute error: 0.0001555
 - Five-run NPU temperature increase: less than 1 °C
 
+Later comparison selected tile 96 as the default: tile 128 passed numerical
+validation but delivered lower per-pixel throughput (about 17,569 input
+pixels/s versus about 22,344 for tile 96) and used more memory.
+
+The final aligned matrix (64/80/96/112/128, seven runs each) confirmed tile 96.
+With an assumed 8-pixel overlap per side, it achieved 15,484 effective input
+pixels/s, the best result in the matrix. The first application version fixes
+the RKNN input tile at 96×96 and starts with an 8-pixel input overlap per side.
+
 ## Source weight
 
 ```text

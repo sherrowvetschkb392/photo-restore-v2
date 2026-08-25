@@ -4,6 +4,9 @@
 
 当前阶段：设备审计与 RKNN 推理基线验证。
 
+已确定首版推理参数：RealESRGAN x4plus FP16、固定 96×96 输入 tile、
+每边初始重叠 8 输入像素。最终 overlap 由真实照片接缝测试确认。
+
 ## 目录
 
 - `scripts/`：部署和设备审计脚本
@@ -30,4 +33,24 @@
 
 ```powershell
 .\scripts\deploy-runtime-check.ps1
+```
+
+完整构建并在 RK3588 验证一个模型：
+
+```powershell
+.\scripts\build-and-validate-model.ps1 -TileSize 96 -Runs 5
+```
+
+选择最终 tile 尺寸：
+
+```powershell
+.\scripts\benchmark-tile-matrix.ps1
+```
+
+详细流程见 `docs/development-workflow.md`。
+
+三端目录结构和保留策略见 `docs/filesystem-layout.md`。只读盘点：
+
+```powershell
+.\scripts\inventory-storage.ps1
 ```

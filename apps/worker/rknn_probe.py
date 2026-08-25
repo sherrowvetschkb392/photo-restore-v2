@@ -32,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--reference", type=Path, required=True)
     parser.add_argument("--runs", type=int, default=5)
+    parser.add_argument("--tile-size", type=int, required=True)
+    parser.add_argument("--report", type=Path)
     return parser.parse_args()
 
 
@@ -44,9 +46,11 @@ def main() -> int:
     args = parse_args()
     input_data = np.load(args.input, allow_pickle=False).astype(np.float32, copy=False)
     reference = np.load(args.reference, allow_pickle=False).astype(np.float32, copy=False)
-    if input_data.shape != (1, 3, 64, 64):
+    expected_input_shape = (1, 3, args.tile_size, args.tile_size)
+    expected_output_shape = (1, 3, args.tile_size * 4, args.tile_size * 4)
+    if input_data.shape != expected_input_shape:
         raise ValueError(f"Unexpected input shape: {input_data.shape}")
-    if reference.shape != (1, 3, 256, 256):
+    if reference.shape != expected_output_shape:
         raise ValueError(f"Unexpected reference shape: {reference.shape}")
 
     # RKNN's board input ABI is NHWC even though the source ONNX graph is NCHW.
@@ -56,6 +60,7 @@ def main() -> int:
     report: dict[str, object] = {
         "pid": os.getpid(),
         "runs": args.runs,
+        "tile_size": args.tile_size,
         "source_input_shape": list(input_data.shape),
         "runtime_input_layout": "NHWC",
         "runtime_input_shape": list(runtime_input.shape),
@@ -116,7 +121,11 @@ def main() -> int:
     finally:
         rknn.release()
 
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+    report_text = json.dumps(report, indent=2, ensure_ascii=False)
+    if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(report_text + "\n", encoding="utf-8")
+    print(report_text)
     print("RESULT=PASS_BOARD_RKNN_INFERENCE")
     return 0
 

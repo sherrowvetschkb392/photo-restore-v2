@@ -25,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--onnx", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seed", type=int, default=20260825)
+    parser.add_argument("--tile-size", type=int, required=True)
     return parser.parse_args()
 
 
@@ -32,7 +33,9 @@ def main() -> int:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(args.seed)
-    input_data = rng.random((1, 3, 64, 64), dtype=np.float32)
+    input_data = rng.random(
+        (1, 3, args.tile_size, args.tile_size), dtype=np.float32
+    )
 
     session = ort.InferenceSession(
         str(args.onnx), providers=["CPUExecutionProvider"]
@@ -41,14 +44,16 @@ def main() -> int:
         np.float32, copy=False
     )
 
-    input_path = args.output_dir / "tile64-input.npy"
-    output_path = args.output_dir / "tile64-onnx-output.npy"
-    report_path = args.output_dir / "tile64-fixture.json"
+    prefix = f"tile{args.tile_size}"
+    input_path = args.output_dir / f"{prefix}-input.npy"
+    output_path = args.output_dir / f"{prefix}-onnx-output.npy"
+    report_path = args.output_dir / f"{prefix}-fixture.json"
     np.save(input_path, input_data, allow_pickle=False)
     np.save(output_path, output_data, allow_pickle=False)
 
     report = {
         "seed": args.seed,
+        "tile_size": args.tile_size,
         "input_shape": list(input_data.shape),
         "output_shape": list(output_data.shape),
         "input_sha256": sha256(input_path),
@@ -68,4 +73,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

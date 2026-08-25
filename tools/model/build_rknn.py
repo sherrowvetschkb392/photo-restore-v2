@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--log", type=Path, required=True)
     parser.add_argument("--target", default="rk3588")
+    parser.add_argument("--tile-size", type=int, required=True)
     return parser.parse_args()
 
 
@@ -46,8 +47,12 @@ def main() -> int:
     onnx.checker.check_model(model)
     input_dims = list(model.graph.input[0].type.tensor_type.shape.dim)
     input_shape = [dimension.dim_value for dimension in input_dims]
-    if input_shape != [1, 3, 64, 64]:
-        raise ValueError(f"Unexpected ONNX input shape: {input_shape}")
+    expected_input_shape = [1, 3, args.tile_size, args.tile_size]
+    if input_shape != expected_input_shape:
+        raise ValueError(
+            f"Unexpected ONNX input shape: {input_shape}, "
+            f"expected {expected_input_shape}"
+        )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.report.parent.mkdir(parents=True, exist_ok=True)
@@ -77,6 +82,7 @@ def main() -> int:
         "optimization_level": 3,
         "input_layout": "NCHW",
         "input_shape": input_shape,
+        "tile_size": args.tile_size,
         "onnx": str(args.onnx),
         "onnx_sha256": file_sha256(args.onnx),
         "rknn": str(args.output),
@@ -97,4 +103,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
