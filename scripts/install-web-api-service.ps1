@@ -24,6 +24,6 @@ Write-Output "Installing and starting photo-restore-api.service..."
 Invoke-NativeChecked { ssh -t @SshOptions $SshHost "sudo install -o root -g root -m 0644 '${RemoteTemporaryUnit}' /etc/systemd/system/photo-restore-api.service && rm -f '${RemoteTemporaryUnit}' && sudo systemctl daemon-reload && sudo systemctl enable --now photo-restore-api.service" } "Installing the API systemd service"
 
 Write-Output "Checking service state and local health endpoint..."
-Invoke-NativeChecked { ssh @SshOptions $SshHost "systemctl is-enabled photo-restore-api.service && systemctl is-active photo-restore-api.service && curl --fail --silent --show-error http://127.0.0.1:8080/api/health" } "Checking the API service"
+Invoke-NativeChecked { ssh @SshOptions $SshHost "systemctl is-enabled photo-restore-api.service && systemctl is-active photo-restore-api.service && for wait_step in 1 2 3 4 5 6 7 8 9 10; do if curl --fail --silent http://127.0.0.1:8080/api/health; then exit 0; fi; sleep 1; done; exit 1" } "Checking the API service"
 
 Write-Output "RESULT=PASS_WEB_API_SERVICE"
