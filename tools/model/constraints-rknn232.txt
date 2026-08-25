@@ -1,0 +1,8 @@
+# Compatibility pins required by RKNN Toolkit2 2.3.2.
+# The toolkit imports onnx.mapping, which is absent from newer ONNX releases.
+setuptools==70.3.0
+numpy==1.26.4
+protobuf==4.25.4
+onnx==1.16.1
+torch==2.4.0
+
