@@ -88,3 +88,34 @@ systemd 服务和受 Cloudflare Access 保护的公网入口均已验证。下�
 ```powershell
 .\scripts\restore-validation-set.ps1 -DatasetName "div2k-x4-sample" -RestartDataset
 ```
+
+验证磁盘合成器的第一档大图能力（默认 1280×720，约 92 万像素）：
+
+```powershell
+.\scripts\benchmark-large-image.ps1
+```
+
+该命令通过已部署 API 运行真实 NPU 任务，验证磁盘合成、完整 4×输出和轻量
+预览，并将忽略 Git 的报告写入 `benchmarks\large-image\`。测试任务完成后会
+自动从板端删除。
+
+已验证的当前上限结果：
+
+- 1280×720（921,600 像素）：总耗时 74.681 秒，峰值 RSS 470,232 KiB；
+- 1920×1000（1,920,000 像素）：总耗时 158.146 秒，峰值 RSS 622,344 KiB；
+- 2000×1500（3,000,000 像素）：在第 211/475 个 tile 后触发 RKNN
+  Runtime 2.3.2 / NPU 驱动卡死，需要重启板子复位。
+
+因此公网输入上限固定为 2,000,000 像素，不应提高到 3MP。直接 3MP
+脚本仅保留为隔离驱动诊断工具，默认禁止启动；只有明确接受可能需要重启板子时
+才可运行：
+
+```powershell
+.\scripts\benchmark-large-image-direct.ps1 -AcknowledgeDriverResetRisk
+```
+
+清理该诊断工具的精确板端目录不会重新生成图片或启动推理：
+
+```powershell
+.\scripts\benchmark-large-image-direct.ps1 -Cleanup
+```

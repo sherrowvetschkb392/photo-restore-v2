@@ -53,10 +53,16 @@ board-side temporary job is removed after verified download unless
 
 ## Next implementation order
 
-1. Benchmark representative 3, 6 and 12 megapixel inputs for RAM, disk and time.
-2. Raise the public pixel limit only to a measured safe tier.
-3. Add automatic age/free-space retention rules for long-running public use.
+1. Keep the public input limit at 2,000,000 pixels. The 1.92 MP tier passed at
+   137.156 seconds NPU time, 158.146 seconds total and 622344 KiB peak RSS.
+2. Treat inputs above 2 MP as unsafe with the current RKNN Runtime 2.3.2 and
+   driver 0.9.2. The isolated 3 MP test stalled at tile 211/475 with NPU Core0
+   fixed at 100%; SIGTERM/SIGKILL could not recover it and the board had to be
+   rebooted. It was not an OOM, storage or thermal failure.
+3. Revisit larger inputs only after a runtime/driver upgrade or a worker design
+   that releases and reinitializes RKNN between bounded tile batches.
+4. Add automatic age/free-space retention rules for long-running public use.
 
-The current project is a working authenticated public appliance with a
-prototype-size safety limit. Large-photo capacity and automatic retention are
-the remaining production gaps.
+The current project is a working authenticated public appliance with a measured
+2 MP safety limit. Larger-photo stability and automatic retention are the
+remaining production gaps.
