@@ -25,6 +25,7 @@ board NPU, and return a verified restored image without requiring cloud access.
 | User-facing local/public UI and API | Complete | FastAPI, SQLite queue, browser UI, systemd and Cloudflare Access |
 | Persistent job history | Complete for current appliance | SQLite index, input/output/report downloads and per-job deletion |
 | Automatic retention and storage quotas | Complete | Terminal jobs are retained for 7 days by default; a 4 GiB job-storage quota and 2 GiB free-space reserve evict oldest terminal jobs without deleting queued/running work |
+| Production health monitoring | Complete | API 0.5.0 reports worker/cleanup threads, job counts and stalls, upload readiness and storage; a read-only PowerShell audit checks systemd, Cloudflare, NPU, temperature and disk |
 
 ## Current image contract
 
@@ -66,4 +67,4 @@ board-side temporary job is removed after verified download unless
 
 The current project is a working authenticated public appliance with a measured
 2 MP safety limit and automatic storage retention. Larger-photo stability and
-operational monitoring are the remaining production gaps.
+runtime/driver resilience is the remaining production gap.

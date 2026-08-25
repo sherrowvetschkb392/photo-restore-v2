@@ -77,11 +77,33 @@ class ServerInitializationTests(unittest.TestCase):
             self.skipTest("FastAPI is installed only in the board server environment")
         with tempfile.TemporaryDirectory() as directory:
             module = self.load_server(directory)
-            self.assertEqual(module.SERVICE_VERSION, "0.4.0")
+            self.assertEqual(module.SERVICE_VERSION, "0.5.0")
             self.assertEqual(module.JOB_RETENTION_SECONDS, 604800)
             self.assertEqual(module.MAX_STORAGE_BYTES, 4294967296)
             self.assertEqual(module.MIN_FREE_BYTES, 2147483648)
             self.assertEqual(module.CLEANUP_INTERVAL_SECONDS, 900)
+            self.assertEqual(module.JOB_STALL_SECONDS, 600)
+
+    def test_job_health_snapshot_detects_stalled_running_job(self) -> None:
+        try:
+            import fastapi  # noqa: F401
+        except ImportError:
+            self.skipTest("FastAPI is installed only in the board server environment")
+        with tempfile.TemporaryDirectory() as directory:
+            module = self.load_server(directory)
+            module.initialize()
+            module.JOB_STALL_SECONDS = 600
+            now = datetime.now(timezone.utc)
+            self.insert_job(
+                module,
+                job_id="stalled-running",
+                state="RUNNING",
+                updated_at=(now - timedelta(seconds=601)).isoformat(),
+            )
+            snapshot = module.job_health_snapshot(now)
+            self.assertEqual(snapshot["counts"]["RUNNING"], 1)
+            self.assertTrue(snapshot["stalled"])
+            self.assertGreaterEqual(snapshot["oldest_running_seconds"], 601)
 
     def test_failed_job_response_never_exposes_internal_error(self) -> None:
         try:

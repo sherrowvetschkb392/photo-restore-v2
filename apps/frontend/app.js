@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const form = $("upload-form"), input = $("photo"), submit = $("submit"), message = $("message");
-let pollTimer = null;
+let pollTimer = null, acceptingUploads = false;
 
 function setMessage(text, error=false){ message.textContent=text; message.classList.toggle("error",error); }
 function dateText(value){ return new Date(value).toLocaleString("zh-CN"); }
@@ -13,8 +13,8 @@ async function request(url, options={}){
 }
 
 async function loadHealth(){
-  try{const health=await request("/api/health");$("health").textContent=health.status==="ok"?`服务正常 · 队列 ${health.queue_size}`:"服务未就绪";$("health").classList.toggle("ok",health.status==="ok");}
-  catch{$("health").textContent="无法连接服务";$("health").classList.remove("ok")}
+  try{const health=await request("/api/health"),used=(Number(health.storage_used_bytes||0)/1073741824).toFixed(2),quota=(Number(health.max_storage_bytes||0)/1073741824).toFixed(0);acceptingUploads=Boolean(health.accepting_uploads);$("health").textContent=health.status==="ok"?`服务正常 · 队列 ${health.queue_size} · 存储 ${used}/${quota} GiB`:(health.alerts?.includes("running_job_stalled")?"处理任务可能卡住，请联系管理员":"服务暂不可接收上传");$("health").classList.toggle("ok",health.status==="ok");submit.disabled=!acceptingUploads;}
+  catch{acceptingUploads=false;submit.disabled=true;$("health").textContent="无法连接服务";$("health").classList.remove("ok")}
 }
 
 function showViewer(job){
@@ -55,7 +55,7 @@ const drop=$("drop-zone");["dragenter","dragover"].forEach(name=>drop.addEventLi
 form.addEventListener("submit",async event=>{
   event.preventDefault();if(!input.files.length)return;submit.disabled=true;setMessage("正在上传并创建任务…");
   try{const data=new FormData();data.append("file",input.files[0]);const job=await request("/api/jobs",{method:"POST",body:data});setMessage(`任务已创建：${job.original_name}`);form.reset();$("file-name").textContent="";await loadJobs()}
-  catch(error){setMessage(`上传失败：${error.message}`,true)}finally{submit.disabled=false}
+  catch(error){setMessage(`上传失败：${error.message}`,true)}finally{submit.disabled=!acceptingUploads}
 });
 
 $("refresh").addEventListener("click",loadJobs);$("compare-range").addEventListener("input",event=>setComparePosition(event.target.value));

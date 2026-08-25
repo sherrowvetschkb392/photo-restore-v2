@@ -34,6 +34,9 @@ if ($FrontendCss -match "object-fit\s*:\s*fill" -or $FrontendCss -notmatch "obje
 if ($FrontendJs -notmatch "input_preview_url" -or $FrontendJs -notmatch "output_preview_url") {
     throw "Frontend comparison viewer must use lightweight preview endpoints"
 }
+if ($FrontendJs -notmatch "accepting_uploads" -or $FrontendJs -notmatch "storage_used_bytes") {
+    throw "Frontend must display production health and upload availability"
+}
 
 Write-Output "Preparing isolated board API directories..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "mkdir -p '${RemoteApp}' '${RemoteWorker}' '${RemoteFrontend}' '${RemoteRoot}/storage/incoming' '${RemoteRoot}/storage/jobs' '${RemoteRoot}/storage/outputs' '${RemoteRoot}/storage/reports' '${RemoteRoot}/storage/tmp' '${RemoteRoot}/database'" } "Preparing the board API directories"

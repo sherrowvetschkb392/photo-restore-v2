@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-SERVICE_VERSION = "0.4.0"
+SERVICE_VERSION = "0.5.0"
 ROOT = Path(os.environ.get("PHOTO_RESTORE_ROOT", "/userdata/photo-restore-v2"))
 STORAGE = ROOT / "storage"
 DATABASE = ROOT / "database" / "jobs.sqlite3"
@@ -44,6 +44,9 @@ MIN_FREE_BYTES = max(
 )
 CLEANUP_INTERVAL_SECONDS = max(
     10, int(os.environ.get("PHOTO_RESTORE_CLEANUP_INTERVAL_SECONDS", 15 * 60))
+)
+JOB_STALL_SECONDS = max(
+    60, int(os.environ.get("PHOTO_RESTORE_JOB_STALL_SECONDS", 10 * 60))
 )
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 JOB_QUEUE: queue.Queue[str] = queue.Queue()
@@ -210,6 +213,39 @@ def cleanup_loop() -> None:
             pass
 
 
+def job_health_snapshot(now: datetime | None = None) -> dict[str, object]:
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    counts = {state: 0 for state in ("QUEUED", "RUNNING", "COMPLETE", "FAILED")}
+    oldest_running_seconds: float | None = None
+    with connect() as connection:
+        for row in connection.execute(
+            "SELECT state,COUNT(*) AS count FROM jobs GROUP BY state"
+        ):
+            counts[str(row["state"])] = int(row["count"])
+        oldest = connection.execute(
+            "SELECT MIN(updated_at_utc) AS value FROM jobs WHERE state='RUNNING'"
+        ).fetchone()["value"]
+    if oldest:
+        try:
+            oldest_running_seconds = max(
+                0.0, (current - parse_utc(str(oldest))).total_seconds()
+            )
+        except ValueError:
+            oldest_running_seconds = None
+    return {
+        "counts": counts,
+        "oldest_running_seconds": (
+            round(oldest_running_seconds, 1)
+            if oldest_running_seconds is not None
+            else None
+        ),
+        "stalled": (
+            oldest_running_seconds is not None
+            and oldest_running_seconds >= JOB_STALL_SECONDS
+        ),
+    }
+
+
 def row_to_dict(row: sqlite3.Row) -> dict[str, object]:
     return {
         "id": row["id"],
@@ -368,13 +404,66 @@ def shutdown() -> None:
 @app.get("/api/health")
 def health() -> dict[str, object]:
     database_ok = False
+    jobs: dict[str, object] = {
+        "counts": {},
+        "oldest_running_seconds": None,
+        "stalled": False,
+    }
     try:
         with connect() as connection:
             connection.execute("SELECT 1").fetchone()
         database_ok = True
+        jobs = job_health_snapshot()
     except sqlite3.Error:
         pass
-    ready = database_ok and MODEL.is_file() and WORKER.is_file() and (FRONTEND / "index.html").is_file()
+    worker_thread_alive = WORKER_THREAD is not None and WORKER_THREAD.is_alive()
+    cleanup_thread_alive = CLEANUP_THREAD is not None and CLEANUP_THREAD.is_alive()
+    storage_free_bytes = 0
+    try:
+        storage_free_bytes = shutil.disk_usage(STORAGE).free
+    except OSError:
+        pass
+    storage_used_bytes = int(LAST_CLEANUP.get("storage_used_bytes") or 0)
+    storage_quota_ok = (
+        MAX_STORAGE_BYTES == 0 or storage_used_bytes < MAX_STORAGE_BYTES
+    )
+    storage_reserve_ok = (
+        MIN_FREE_BYTES == 0 or storage_free_bytes >= MIN_FREE_BYTES
+    )
+    alerts: list[str] = []
+    if not database_ok:
+        alerts.append("database_unavailable")
+    if not MODEL.is_file():
+        alerts.append("model_unavailable")
+    if not WORKER.is_file():
+        alerts.append("worker_source_unavailable")
+    if not (FRONTEND / "index.html").is_file():
+        alerts.append("frontend_unavailable")
+    if not worker_thread_alive:
+        alerts.append("worker_thread_unavailable")
+    if not cleanup_thread_alive:
+        alerts.append("cleanup_thread_unavailable")
+    if not storage_quota_ok:
+        alerts.append("storage_quota_full")
+    if not storage_reserve_ok:
+        alerts.append("storage_reserve_low")
+    if bool(jobs.get("stalled")):
+        alerts.append("running_job_stalled")
+    core_ready = (
+        database_ok
+        and MODEL.is_file()
+        and WORKER.is_file()
+        and (FRONTEND / "index.html").is_file()
+        and worker_thread_alive
+        and cleanup_thread_alive
+    )
+    accepting_uploads = (
+        core_ready
+        and storage_quota_ok
+        and storage_reserve_ok
+        and not bool(jobs.get("stalled"))
+    )
+    ready = accepting_uploads
     return {
         "status": "ok" if ready else "degraded",
         "service": "photo-restore-v2",
@@ -387,6 +476,11 @@ def health() -> dict[str, object]:
         "worker_ready": WORKER.is_file(),
         "frontend_ready": (FRONTEND / "index.html").is_file(),
         "queue_size": JOB_QUEUE.qsize(),
+        "worker_thread_alive": worker_thread_alive,
+        "cleanup_thread_alive": cleanup_thread_alive,
+        "accepting_uploads": accepting_uploads,
+        "alerts": alerts,
+        "jobs": jobs,
         "max_upload_bytes": MAX_UPLOAD_BYTES,
         "max_input_pixels": MAX_INPUT_PIXELS,
         "preview_max_edge": PREVIEW_MAX_EDGE,
@@ -394,6 +488,9 @@ def health() -> dict[str, object]:
         "max_storage_bytes": MAX_STORAGE_BYTES,
         "min_free_bytes": MIN_FREE_BYTES,
         "cleanup_interval_seconds": CLEANUP_INTERVAL_SECONDS,
+        "job_stall_seconds": JOB_STALL_SECONDS,
+        "storage_used_bytes": storage_used_bytes,
+        "storage_free_bytes": storage_free_bytes,
         "last_cleanup": dict(LAST_CLEANUP),
     }
 

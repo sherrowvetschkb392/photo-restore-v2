@@ -124,3 +124,13 @@ systemd 服务和受 Cloudflare Access 保护的公网入口均已验证。下�
 4 GiB 或板端可用空间低于 2 GiB 时，从最旧的已结束任务开始回收。排队中和
 运行中的任务不会被自动删除。清理巡检默认每 15 分钟运行一次，所有参数均由
 `config\photo-restore-api.service` 固定并随部署同步。
+
+只读检查生产服务、Cloudflare Tunnel、任务队列、NPU、温度与磁盘：
+
+```powershell
+.\scripts\check-production-health.ps1
+```
+
+该命令不会删除任务、终止进程或重启板子。结果同时写入忽略 Git 的
+`benchmarks\production-health\latest.json`；若发现运行任务超过 10 分钟且 NPU
+持续高负载，会提示疑似驱动卡死并要求人工检查。

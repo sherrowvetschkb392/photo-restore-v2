@@ -13,8 +13,9 @@ Environment=PHOTO_RESTORE_JOB_RETENTION_SECONDS=604800
 Environment=PHOTO_RESTORE_MAX_STORAGE_BYTES=4294967296
 Environment=PHOTO_RESTORE_MIN_FREE_BYTES=2147483648
 Environment=PHOTO_RESTORE_CLEANUP_INTERVAL_SECONDS=900
+Environment=PHOTO_RESTORE_JOB_STALL_SECONDS=600
 ExecStart=/userdata/photo-restore-v2/venv/bin/python -m uvicorn app:app --app-dir /userdata/photo-restore-v2/app/backend --host 127.0.0.1 --port 8080 --proxy-headers --forwarded-allow-ips=127.0.0.1
-Restart=on-failure
+Restart=always
 RestartSec=3
 TimeoutStopSec=30
 NoNewPrivileges=true
