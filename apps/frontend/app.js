@@ -22,7 +22,7 @@ function showViewer(job){
   const ratioWidth=Number(job.width)||4,ratioHeight=Number(job.height)||3;
   $("compare").style.aspectRatio=`${ratioWidth} / ${ratioHeight}`;
   $("compare-range").value="50";setComparePosition(50);
-  $("original-image").src=job.input_url;$("result-image").src=job.output_url;
+  $("original-image").src=job.input_preview_url;$("result-image").src=job.output_preview_url;
   $("download-output").href=job.output_url;$("download-report").href=job.report_url;
   $("viewer-panel").scrollIntoView({behavior:"smooth",block:"start"});
 }

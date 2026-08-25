@@ -20,6 +20,7 @@ board NPU, and return a verified restored image without requiring cloud access.
 | Real photo single-image command | Implemented | `scripts/restore-photo.ps1` |
 | High-resolution visual comparison | Implemented | validation comparison viewer |
 | Disk-backed large-image compositor | Complete | RK3588 output hash matches the reference memory compositor; row-band overlap-add writes finalized RGB rows to a project-local memmap |
+| Lightweight browser previews | Complete | Deployed API validation confirms input/output JPEG previews are bounded to a 1600-pixel longest edge; downloads remain full resolution |
 | Large-photo public processing | Pending | Public limit remains 2,000,000 pixels until board memory/disk/time validation |
 | User-facing local/public UI and API | Complete | FastAPI, SQLite queue, browser UI, systemd and Cloudflare Access |
 | Persistent job history | Complete for current appliance | SQLite index, input/output/report downloads and per-job deletion |
@@ -53,10 +54,8 @@ board-side temporary job is removed after verified download unless
 ## Next implementation order
 
 1. Benchmark representative 3, 6 and 12 megapixel inputs for RAM, disk and time.
-2. Add browser preview derivatives so large 4x outputs are not decoded at full
-   resolution merely to show the comparison viewer.
-3. Raise the public pixel limit only to a measured safe tier.
-4. Add automatic age/free-space retention rules for long-running public use.
+2. Raise the public pixel limit only to a measured safe tier.
+3. Add automatic age/free-space retention rules for long-running public use.
 
 The current project is a working authenticated public appliance with a
 prototype-size safety limit. Large-photo capacity and automatic retention are

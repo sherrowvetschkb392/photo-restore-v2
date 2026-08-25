@@ -38,6 +38,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--preview-output", type=Path)
+    parser.add_argument("--preview-max-edge", type=int, default=1600)
     parser.add_argument("--tile-size", type=int, default=96)
     parser.add_argument("--overlap", type=int, default=8)
     parser.add_argument("--scale", type=int, default=4)
@@ -206,7 +208,15 @@ def main() -> int:
             output_array = np.clip(np.rint(restored * 255.0), 0, 255).astype(np.uint8)
             output_image = Image.fromarray(output_array)
         inference_seconds = time.perf_counter() - inference_started
+        full_output_size = output_image.size
         atomic_save(output_image, args.output, args.jpeg_quality)
+        if args.preview_output:
+            if args.preview_max_edge <= 0:
+                raise ValueError("preview-max-edge must be positive")
+            output_image.thumbnail(
+                (args.preview_max_edge, args.preview_max_edge), Image.Resampling.LANCZOS
+            )
+            atomic_save(output_image, args.preview_output, 88)
     finally:
         engine.close()
         if raw_output is not None:
@@ -224,7 +234,9 @@ def main() -> int:
         "model": str(args.model),
         "model_sha256": file_sha256(args.model),
         "plan": plan_to_dict(plan),
-        "output_size": list(output_image.size),
+        "output_size": list(full_output_size),
+        "preview_output": str(args.preview_output) if args.preview_output else None,
+        "preview_size": list(output_image.size) if args.preview_output else None,
         "compositor": compositor,
         "raw_output_bytes": raw_output_bytes if compositor == "disk" else 0,
         "required_free_bytes": required_free_bytes if compositor == "disk" else 0,

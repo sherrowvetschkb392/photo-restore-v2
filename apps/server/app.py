@@ -10,6 +10,7 @@ import queue
 import shutil
 import sqlite3
 import subprocess
+import tempfile
 import threading
 import traceback
 import uuid
@@ -19,9 +20,9 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
-SERVICE_VERSION = "0.3.0"
+SERVICE_VERSION = "0.3.1"
 ROOT = Path(os.environ.get("PHOTO_RESTORE_ROOT", "/userdata/photo-restore-v2"))
 STORAGE = ROOT / "storage"
 DATABASE = ROOT / "database" / "jobs.sqlite3"
@@ -31,6 +32,7 @@ FRONTEND = ROOT / "app" / "frontend"
 PYTHON = ROOT / "venv" / "bin" / "python"
 MAX_UPLOAD_BYTES = int(os.environ.get("PHOTO_RESTORE_MAX_UPLOAD_BYTES", 20 * 1024 * 1024))
 MAX_INPUT_PIXELS = int(os.environ.get("PHOTO_RESTORE_MAX_INPUT_PIXELS", 2_000_000))
+PREVIEW_MAX_EDGE = int(os.environ.get("PHOTO_RESTORE_PREVIEW_MAX_EDGE", 1600))
 ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 JOB_QUEUE: queue.Queue[str] = queue.Queue()
 STOP = threading.Event()
@@ -83,7 +85,9 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, object]:
         "created_at_utc": row["created_at_utc"],
         "updated_at_utc": row["updated_at_utc"],
         "input_url": f"/api/jobs/{row['id']}/input",
+        "input_preview_url": f"/api/jobs/{row['id']}/input/preview",
         "output_url": f"/api/jobs/{row['id']}/output" if row["state"] == "COMPLETE" else None,
+        "output_preview_url": f"/api/jobs/{row['id']}/output/preview" if row["state"] == "COMPLETE" else None,
         "report_url": f"/api/jobs/{row['id']}/report" if row["state"] == "COMPLETE" else None,
     }
 
@@ -109,14 +113,48 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def preview_path(row: sqlite3.Row, kind: str) -> Path:
+    if kind not in {"input", "output"}:
+        raise ValueError(f"unsupported preview kind: {kind}")
+    return Path(row["input_path"]).parent / f"{kind}-preview.jpg"
+
+
+def create_preview(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.stem}.", suffix=".jpg", dir=destination.parent
+    )
+    os.close(handle)
+    temporary = Path(temporary_name)
+    try:
+        with Image.open(source) as image:
+            image = ImageOps.exif_transpose(image).convert("RGB")
+            image.thumbnail((PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE), Image.Resampling.LANCZOS)
+            image.save(temporary, format="JPEG", quality=88, optimize=True)
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def ensure_preview(row: sqlite3.Row, kind: str) -> Path:
+    destination = preview_path(row, kind)
+    if not destination.is_file():
+        source = Path(row["input_path"] if kind == "input" else row["output_path"])
+        if not source.is_file():
+            raise HTTPException(status_code=409, detail=f"{kind} image is not ready")
+        create_preview(source, destination)
+    return destination
+
+
 def process_job(job_id: str) -> None:
     row = get_job(job_id)
     input_path, output_path, report_path = map(Path, (row["input_path"], row["output_path"], row["report_path"]))
+    output_preview_path = preview_path(row, "output")
     set_state(job_id, "RUNNING")
-    command = [str(PYTHON), str(WORKER), "--input", str(input_path), "--output", str(output_path), "--model", str(MODEL), "--report", str(report_path), "--max-input-pixels", str(MAX_INPUT_PIXELS), "--compositor", "auto", "--work-dir", str(STORAGE / "tmp")]
+    command = [str(PYTHON), str(WORKER), "--input", str(input_path), "--output", str(output_path), "--model", str(MODEL), "--report", str(report_path), "--preview-output", str(output_preview_path), "--preview-max-edge", str(PREVIEW_MAX_EDGE), "--max-input-pixels", str(MAX_INPUT_PIXELS), "--compositor", "auto", "--work-dir", str(STORAGE / "tmp")]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=3600)
     (input_path.parent / "worker.log").write_text(completed.stdout + completed.stderr, encoding="utf-8")
-    if completed.returncode != 0 or not output_path.is_file() or not report_path.is_file():
+    if completed.returncode != 0 or not output_path.is_file() or not report_path.is_file() or not output_preview_path.is_file():
         raise RuntimeError(f"worker exited with code {completed.returncode}; see worker.log")
     set_state(job_id, "COMPLETE", output_sha256=sha256(output_path))
 
@@ -187,7 +225,7 @@ def health() -> dict[str, object]:
     except sqlite3.Error:
         pass
     ready = database_ok and MODEL.is_file() and WORKER.is_file() and (FRONTEND / "index.html").is_file()
-    return {"status": "ok" if ready else "degraded", "service": "photo-restore-v2", "version": SERVICE_VERSION, "time_utc": utc_now(), "python": platform.python_version(), "architecture": platform.machine(), "database_ready": database_ok, "model_ready": MODEL.is_file(), "worker_ready": WORKER.is_file(), "frontend_ready": (FRONTEND / "index.html").is_file(), "queue_size": JOB_QUEUE.qsize(), "max_upload_bytes": MAX_UPLOAD_BYTES, "max_input_pixels": MAX_INPUT_PIXELS}
+    return {"status": "ok" if ready else "degraded", "service": "photo-restore-v2", "version": SERVICE_VERSION, "time_utc": utc_now(), "python": platform.python_version(), "architecture": platform.machine(), "database_ready": database_ok, "model_ready": MODEL.is_file(), "worker_ready": WORKER.is_file(), "frontend_ready": (FRONTEND / "index.html").is_file(), "queue_size": JOB_QUEUE.qsize(), "max_upload_bytes": MAX_UPLOAD_BYTES, "max_input_pixels": MAX_INPUT_PIXELS, "preview_max_edge": PREVIEW_MAX_EDGE}
 
 
 @app.post("/api/jobs", status_code=202)
@@ -216,6 +254,7 @@ def create_job(file: UploadFile = File(...)) -> dict[str, object]:
             width, height = image.size
         if width * height > MAX_INPUT_PIXELS:
             raise HTTPException(status_code=413, detail=f"image has {width * height} pixels; limit is {MAX_INPUT_PIXELS}")
+        create_preview(input_path, job_dir / "input-preview.jpg")
     except (UnidentifiedImageError, OSError) as exc:
         shutil.rmtree(job_dir, ignore_errors=True)
         raise HTTPException(status_code=415, detail="uploaded file is not a valid PNG/JPEG") from exc
@@ -248,12 +287,26 @@ def job_input(job_id: str) -> FileResponse:
     return FileResponse(row["input_path"], filename=row["original_name"])
 
 
+@app.get("/api/jobs/{job_id}/input/preview")
+def job_input_preview(job_id: str) -> FileResponse:
+    row = get_job(job_id)
+    return FileResponse(ensure_preview(row, "input"), media_type="image/jpeg")
+
+
 @app.get("/api/jobs/{job_id}/output")
 def job_output(job_id: str) -> FileResponse:
     row = get_job(job_id)
     if row["state"] != "COMPLETE" or not Path(row["output_path"]).is_file():
         raise HTTPException(status_code=409, detail="output is not ready")
     return FileResponse(row["output_path"], media_type="image/png", filename=f"{Path(row['original_name']).stem}-x4.png")
+
+
+@app.get("/api/jobs/{job_id}/output/preview")
+def job_output_preview(job_id: str) -> FileResponse:
+    row = get_job(job_id)
+    if row["state"] != "COMPLETE":
+        raise HTTPException(status_code=409, detail="output is not ready")
+    return FileResponse(ensure_preview(row, "output"), media_type="image/jpeg")
 
 
 @app.get("/api/jobs/{job_id}/report")

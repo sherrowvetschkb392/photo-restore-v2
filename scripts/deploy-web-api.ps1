@@ -28,6 +28,9 @@ $FrontendJs = Get-Content (Join-Path $ProjectRoot "apps\frontend\app.js") -Raw
 if ($FrontendCss -match "object-fit\s*:\s*fill" -or $FrontendCss -notmatch "object-fit\s*:\s*contain" -or $FrontendJs -notmatch "clipPath") {
     throw "Frontend comparison viewer must preserve image aspect ratio and reveal by clipping"
 }
+if ($FrontendJs -notmatch "input_preview_url" -or $FrontendJs -notmatch "output_preview_url") {
+    throw "Frontend comparison viewer must use lightweight preview endpoints"
+}
 
 Write-Output "Preparing isolated board API directories..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "mkdir -p '${RemoteApp}' '${RemoteWorker}' '${RemoteFrontend}' '${RemoteRoot}/storage/incoming' '${RemoteRoot}/storage/jobs' '${RemoteRoot}/storage/outputs' '${RemoteRoot}/storage/reports' '${RemoteRoot}/storage/tmp' '${RemoteRoot}/database'" } "Preparing the board API directories"
@@ -44,7 +47,7 @@ foreach ($FrontendFile in @("index.html", "app.css", "app.js")) {
 
 Write-Output "Installing the pinned API dependencies into the project venv..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "'${Python}' -m pip install -r '${RemoteApp}/requirements-server.txt'" } "Installing the API dependencies"
-Invoke-NativeChecked { ssh @SshOptions $SshHost "PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -m py_compile '${RemoteApp}/app.py' '${RemoteWorker}/restore_image.py' '${RemoteWorker}/tiling.py'; cd '${RemoteApp}' && PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -c 'from app import app, initialize, health, PUBLIC_PROCESSING_ERROR; initialize(); assert len(app.routes) >= 9; assert len(PUBLIC_PROCESSING_ERROR) < 100; assert not any(ord(c) in (47,92) for c in PUBLIC_PROCESSING_ERROR); print(health())'" } "Checking API routes, error sanitization, worker and database"
+Invoke-NativeChecked { ssh @SshOptions $SshHost "PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -m py_compile '${RemoteApp}/app.py' '${RemoteWorker}/restore_image.py' '${RemoteWorker}/tiling.py'; cd '${RemoteApp}' && PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -c 'import app as module; from PIL import Image; module.initialize(); assert len(module.app.routes) >= 11; assert module.PREVIEW_MAX_EDGE == 1600; assert len(module.PUBLIC_PROCESSING_ERROR) < 100; assert not any(ord(c) in (47,92) for c in module.PUBLIC_PROCESSING_ERROR); source=module.STORAGE/bytes((116,109,112)).decode(); input_path=source/bytes((112,114,101,118,105,101,119,45,99,104,101,99,107,46,112,110,103)).decode(); output_path=source/bytes((112,114,101,118,105,101,119,45,99,104,101,99,107,46,106,112,103)).decode(); Image.new(bytes((82,71,66)).decode(),(32,24)).save(input_path); module.create_preview(input_path,output_path); assert output_path.is_file(); input_path.unlink(); output_path.unlink(); print(module.health())'" } "Checking API routes, preview generation, error sanitization, worker and database"
 Invoke-NativeChecked { ssh @SshOptions $SshHost "if systemctl is-active --quiet photo-restore-api.service; then sudo systemctl restart photo-restore-api.service; fi" } "Restarting the API service after deployment"
 
 Write-Output "Waiting for the deployed API to become healthy..."

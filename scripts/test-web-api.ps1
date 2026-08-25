@@ -18,6 +18,8 @@ $ReportPath = Join-Path $OutputRoot "api-smoke-report.json"
 $RemoteInput = "${RemoteRoot}/storage/tmp/api-smoke-input$([System.IO.Path]::GetExtension($InputPath).ToLowerInvariant())"
 $RemoteOutput = "${RemoteRoot}/storage/tmp/api-smoke-output.png"
 $RemoteReport = "${RemoteRoot}/storage/tmp/api-smoke-report.json"
+$RemoteInputPreview = "${RemoteRoot}/storage/tmp/api-smoke-input-preview.jpg"
+$RemoteOutputPreview = "${RemoteRoot}/storage/tmp/api-smoke-output-preview.jpg"
 $SshOptions = @("-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3")
 
 function Invoke-CaptureChecked {
@@ -35,11 +37,14 @@ foreach ($Path in @($OutputPath, $ReportPath)) { if (Test-Path -LiteralPath $Pat
 Write-Output "Checking the deployed API version and safety limit..."
 $HealthText = Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error http://127.0.0.1:8080/api/health" } "Checking the API health endpoint"
 $Health = $HealthText | ConvertFrom-Json
-if ($Health.status -ne "ok" -or $Health.version -ne "0.3.0") {
-    throw "Expected healthy API version 0.3.0, received status='$($Health.status)' version='$($Health.version)'"
+if ($Health.status -ne "ok" -or $Health.version -ne "0.3.1") {
+    throw "Expected healthy API version 0.3.1, received status='$($Health.status)' version='$($Health.version)'"
 }
 if ([int64]$Health.max_input_pixels -ne 2000000) {
     throw "Public input limit changed unexpectedly: $($Health.max_input_pixels)"
+}
+if ([int64]$Health.preview_max_edge -ne 1600) {
+    throw "Preview edge limit changed unexpectedly: $($Health.preview_max_edge)"
 }
 
 Write-Output "Uploading one isolated API smoke-test image..."
@@ -47,7 +52,19 @@ Write-Output "Uploading one isolated API smoke-test image..."
 if ($LASTEXITCODE -ne 0) { throw "Uploading the API smoke-test image failed" }
 
 Write-Output "Creating an HTTP restoration job..."
-$CreateText = Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error -F 'file=@${RemoteInput}' http://127.0.0.1:8080/api/jobs" } "Creating the API job"
+$Previous = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Continue"
+    $CreateLines = @(& ssh @SshOptions $SshHost "curl --fail --silent --show-error -F 'file=@${RemoteInput}' http://127.0.0.1:8080/api/jobs")
+    $CreateCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $Previous
+}
+if ($CreateCode -ne 0) {
+    & ssh @SshOptions $SshHost "rm -f '${RemoteInput}' '${RemoteInputPreview}' '${RemoteOutputPreview}'" 2>$null
+    throw "Creating the API job failed with exit code $CreateCode"
+}
+$CreateText = (($CreateLines | ForEach-Object { "$_" }) -join "`n").Trim()
 $Created = $CreateText | ConvertFrom-Json
 $JobId = [string]$Created.id
 if ($JobId -notmatch '^[0-9a-f]{32}$') { throw "API returned an invalid job id" }
@@ -68,6 +85,8 @@ if ($null -eq $Final) { throw "API job timed out after $TimeoutSeconds seconds" 
 
 Write-Output "Downloading output and report through HTTP..."
 Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error http://127.0.0.1:8080/api/jobs/${JobId}/output -o '${RemoteOutput}' && curl --fail --silent --show-error http://127.0.0.1:8080/api/jobs/${JobId}/report -o '${RemoteReport}'" } "Downloading API results on the board" | Out-Null
+Write-Output "Checking lightweight browser previews..."
+Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error http://127.0.0.1:8080/api/jobs/${JobId}/input/preview -o '${RemoteInputPreview}' && curl --fail --silent --show-error http://127.0.0.1:8080/api/jobs/${JobId}/output/preview -o '${RemoteOutputPreview}' && '${RemoteRoot}/venv/bin/python' -c 'from PIL import Image; import sys; images=[Image.open(path) for path in sys.argv[1:]]; expected=bytes((74,80,69,71)).decode(); assert all(image.format == expected for image in images); assert all(max(image.size) <= 1600 for image in images); print([image.size for image in images])' '${RemoteInputPreview}' '${RemoteOutputPreview}'" } "Checking API preview images" | Out-Null
 & scp @SshOptions "${SshHost}:${RemoteOutput}" $OutputPath
 if ($LASTEXITCODE -ne 0) { throw "Downloading API output failed" }
 & scp @SshOptions "${SshHost}:${RemoteReport}" $ReportPath
@@ -78,12 +97,15 @@ $Report = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json
 if ($Report.compositor -notin @("memory", "disk")) {
     throw "API report did not identify a valid compositor: $($Report.compositor)"
 }
+if ([string]::IsNullOrWhiteSpace([string]$Report.preview_output) -or [int64]$Report.preview_size[0] -gt 1600 -or [int64]$Report.preview_size[1] -gt 1600) {
+    throw "API report did not record a valid lightweight preview"
+}
 
 Write-Output "Deleting the verified API job..."
 $DeleteText = Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error -X DELETE http://127.0.0.1:8080/api/jobs/${JobId}" } "Deleting the API smoke-test job"
 $Deleted = $DeleteText | ConvertFrom-Json
 if (-not $Deleted.deleted) { throw "API did not confirm job deletion" }
-Invoke-CaptureChecked { ssh @SshOptions $SshHost "rm -f '${RemoteInput}' '${RemoteOutput}' '${RemoteReport}'" } "Cleaning API smoke-test transfer files" | Out-Null
+Invoke-CaptureChecked { ssh @SshOptions $SshHost "rm -f '${RemoteInput}' '${RemoteOutput}' '${RemoteReport}' '${RemoteInputPreview}' '${RemoteOutputPreview}'" } "Cleaning API smoke-test transfer files" | Out-Null
 
 Write-Output "Output: $OutputPath"
 Write-Output "Report: $ReportPath"
