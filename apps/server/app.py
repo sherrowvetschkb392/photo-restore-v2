@@ -230,11 +230,12 @@ def job_report(job_id: str) -> FileResponse:
     return FileResponse(row["report_path"], media_type="application/json", filename=f"{job_id}-report.json")
 
 
-@app.delete("/api/jobs/{job_id}", status_code=204)
-def delete_job(job_id: str) -> None:
+@app.delete("/api/jobs/{job_id}")
+def delete_job(job_id: str) -> dict[str, object]:
     row = get_job(job_id)
     if row["state"] == "RUNNING":
         raise HTTPException(status_code=409, detail="a running job cannot be deleted")
     with connect() as connection:
         connection.execute("DELETE FROM jobs WHERE id=?", (job_id,))
     shutil.rmtree(Path(row["input_path"]).parent, ignore_errors=True)
+    return {"deleted": True, "job_id": job_id}
