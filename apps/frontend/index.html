@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>照片修复工作站</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">RK3588 · 本地 NPU</p>
+        <h1>照片修复工作站</h1>
+        <p class="lede">上传 PNG 或 JPEG，使用 Real-ESRGAN 在本机完成 4 倍修复。</p>
+      </div>
+      <div id="health" class="health" aria-live="polite">正在连接服务…</div>
+    </header>
+
+    <section class="panel upload-panel">
+      <form id="upload-form">
+        <label id="drop-zone" class="drop-zone" for="photo">
+          <input id="photo" name="file" type="file" accept="image/png,image/jpeg" required>
+          <span class="drop-title">选择或拖入一张照片</span>
+          <span class="drop-note">PNG / JPEG · 最大 20 MiB · 当前最多 200 万像素</span>
+          <span id="file-name" class="file-name"></span>
+        </label>
+        <button id="submit" type="submit">开始修复</button>
+      </form>
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section id="viewer-panel" class="panel viewer-panel" hidden>
+      <div class="section-head">
+        <div><p class="eyebrow">效果预览</p><h2 id="viewer-title">修复结果</h2></div>
+        <div class="actions">
+          <a id="download-output" class="button secondary" href="#" download>下载修复图</a>
+          <a id="download-report" class="button ghost" href="#" download>下载报告</a>
+        </div>
+      </div>
+      <div id="compare" class="compare">
+        <img id="result-image" alt="修复后的照片">
+        <div id="original-layer" class="original-layer"><img id="original-image" alt="原始照片放大预览"></div>
+        <div id="divider" class="divider" aria-hidden="true"></div>
+      </div>
+      <label class="compare-control">原图覆盖比例
+        <input id="compare-range" type="range" min="0" max="100" value="50">
+      </label>
+      <div class="compare-labels"><span>原图放大</span><span>AI 修复</span></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head"><div><p class="eyebrow">任务记录</p><h2>最近任务</h2></div><button id="refresh" class="secondary" type="button">刷新</button></div>
+      <div id="empty" class="empty">还没有任务。</div>
+      <div id="jobs" class="jobs" aria-live="polite"></div>
+    </section>
+  </main>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

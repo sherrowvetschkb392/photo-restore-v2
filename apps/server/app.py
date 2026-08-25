@@ -17,6 +17,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
 SERVICE_VERSION = "0.2.0"
@@ -25,6 +26,7 @@ STORAGE = ROOT / "storage"
 DATABASE = ROOT / "database" / "jobs.sqlite3"
 MODEL = ROOT / "models" / "realesrgan_x4plus_tile96_fp16.rknn"
 WORKER = ROOT / "app" / "worker" / "restore_image.py"
+FRONTEND = ROOT / "app" / "frontend"
 PYTHON = ROOT / "venv" / "bin" / "python"
 MAX_UPLOAD_BYTES = int(os.environ.get("PHOTO_RESTORE_MAX_UPLOAD_BYTES", 20 * 1024 * 1024))
 MAX_INPUT_PIXELS = int(os.environ.get("PHOTO_RESTORE_MAX_INPUT_PIXELS", 2_000_000))
@@ -137,6 +139,15 @@ def enqueue_existing() -> None:
 
 
 app = FastAPI(title="Photo Restore V2", version=SERVICE_VERSION)
+app.mount("/static", StaticFiles(directory=str(FRONTEND), check_dir=False), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    index_path = FRONTEND / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=503, detail="frontend is not deployed")
+    return FileResponse(index_path, media_type="text/html")
 
 
 @app.on_event("startup")
@@ -162,8 +173,8 @@ def health() -> dict[str, object]:
         database_ok = True
     except sqlite3.Error:
         pass
-    ready = database_ok and MODEL.is_file() and WORKER.is_file()
-    return {"status": "ok" if ready else "degraded", "service": "photo-restore-v2", "version": SERVICE_VERSION, "time_utc": utc_now(), "python": platform.python_version(), "architecture": platform.machine(), "database_ready": database_ok, "model_ready": MODEL.is_file(), "worker_ready": WORKER.is_file(), "queue_size": JOB_QUEUE.qsize(), "max_upload_bytes": MAX_UPLOAD_BYTES, "max_input_pixels": MAX_INPUT_PIXELS}
+    ready = database_ok and MODEL.is_file() and WORKER.is_file() and (FRONTEND / "index.html").is_file()
+    return {"status": "ok" if ready else "degraded", "service": "photo-restore-v2", "version": SERVICE_VERSION, "time_utc": utc_now(), "python": platform.python_version(), "architecture": platform.machine(), "database_ready": database_ok, "model_ready": MODEL.is_file(), "worker_ready": WORKER.is_file(), "frontend_ready": (FRONTEND / "index.html").is_file(), "queue_size": JOB_QUEUE.qsize(), "max_upload_bytes": MAX_UPLOAD_BYTES, "max_input_pixels": MAX_INPUT_PIXELS}
 
 
 @app.post("/api/jobs", status_code=202)
