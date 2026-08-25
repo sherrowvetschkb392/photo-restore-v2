@@ -3,8 +3,8 @@
 面向 RK3588 的离线老照片修复工作站。
 
 当前阶段：RKNN 模型、板端 NPU 推理、批量验证、单图 CLI、FastAPI/Web UI、
-systemd 服务和受 Cloudflare Access 保护的公网入口均已验证。下一阶段是大图
-生产化、轻量预览与长期存储治理。
+systemd 服务、Cloudflare Access 公网入口、长期存储治理和生产健康监控均已验证。
+下一阶段是生产安全与可恢复性补强，以及隔离的视频智能插帧技术预检。
 
 已确定首版推理参数：RealESRGAN x4plus FP16、固定 96×96 输入 tile、
 每边初始重叠 8 输入像素。最终 overlap 由真实照片接缝测试确认。
@@ -51,8 +51,9 @@ systemd 服务和受 Cloudflare Access 保护的公网入口均已验证。下�
 
 详细流程见 `docs/development-workflow.md`。
 
-原始需求、当前完成度和后续缺口见 `docs/requirements-status.md`；图片输入输出
-约定见该文档的 “Current image contract” 小节。
+完整产品需求、图片修复与视频插帧范围、验收标准和分阶段开发顺序见
+`docs/product-requirements-roadmap.md`。简明完成度见 `docs/requirements-status.md`；
+图片输入输出约定见该文档的 “Current image contract” 小节。
 
 三端目录结构和保留策略见 `docs/filesystem-layout.md`。只读盘点：
 

@@ -62,11 +62,16 @@ overlap, but not the compiled model tile size.
 
 ## Image prototype safety limit
 
-The first real-image worker uses in-memory float32 overlap-add blending. It is
-limited to 2,000,000 input pixels to keep memory use safe on the 4 GB board.
-This phase validates color, padding, tile alignment and seams. Production-size
-photos require a later stripe/disk-backed compositor before the limit is
-raised.
+The image worker supports both in-memory overlap-add and a disk-backed row-band
+compositor. The disk compositor has been verified against the memory reference
+and is selected automatically for larger images. Lightweight browser previews
+are generated independently from the full-resolution output.
+
+The public limit remains 2,000,000 input pixels. This is now a measured RKNN
+runtime/driver stability boundary rather than an unfinished compositor limit:
+1280×720 and 1920×1000 passed, while an isolated 2000×1500 run stalled at tile
+211/475 with NPU Core0 fixed at 100%. It was not an OOM, storage or thermal
+failure, and a board reboot was required to recover the NPU.
 
 After the prototype passes, restore one real photo from PowerShell:
 
@@ -80,6 +85,11 @@ report. Its default local destination is `benchmarks\restored\`.
 After both files download successfully, the board-side job artifacts are
 removed by default. Pass `-KeepRemoteArtifacts` only when board-side debugging
 is needed.
+
+The public Web/API path persists completed tasks under the configured retention
+and quota policy instead of using the CLI's immediate remote cleanup behavior.
+The complete product scope and next implementation order are maintained in
+`product-requirements-roadmap.md`.
 
 ## Validation dataset isolation
 

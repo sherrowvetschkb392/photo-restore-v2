@@ -1,5 +1,9 @@
 # Requirements status
 
+This is the compact implementation snapshot. The canonical product scope,
+requirement IDs, video-interpolation plan, release gates and implementation
+order are defined in `product-requirements-roadmap.md`.
+
 ## Original project goal
 
 Build an offline photo-restoration workstation for the RK3588 board. The
@@ -21,11 +25,16 @@ board NPU, and return a verified restored image without requiring cloud access.
 | High-resolution visual comparison | Implemented | validation comparison viewer |
 | Disk-backed large-image compositor | Complete | RK3588 output hash matches the reference memory compositor; row-band overlap-add writes finalized RGB rows to a project-local memmap |
 | Lightweight browser previews | Complete | Deployed API validation confirms input/output JPEG previews are bounded to a 1600-pixel longest edge; downloads remain full resolution |
-| Large-photo public processing | Pending | Public limit remains 2,000,000 pixels until board memory/disk/time validation |
+| Large-photo public processing | Complete at measured 2 MP limit | 1.92 MP passed; 3 MP stalled the NPU driver and remains explicitly unsupported |
 | User-facing local/public UI and API | Complete | FastAPI, SQLite queue, browser UI, systemd and Cloudflare Access |
 | Persistent job history | Complete for current appliance | SQLite index, input/output/report downloads and per-job deletion |
 | Automatic retention and storage quotas | Complete | Terminal jobs are retained for 7 days by default; a 4 GiB job-storage quota and 2 GiB free-space reserve evict oldest terminal jobs without deleting queued/running work |
 | Production health monitoring | Complete | API 0.5.0 reports worker/cleanup threads, job counts and stalls, upload readiness and storage; a read-only PowerShell audit checks systemd, Cloudflare, NPU, temperature and disk |
+| Per-user ownership, quotas and rate limits | Pending (P0) | Cloudflare Access protects the edge, but the application does not yet isolate job history by identity |
+| Database migration, backup and deployment rollback | Pending (P0) | Required before adding video jobs or broader public use |
+| Job progress and cancellation | Pending (P0) | Current image queue exposes state but not worker heartbeat/progress or cancellation |
+| Full photo restoration modes | Pending | Current production model provides general 4x enhancement; face, scratch, denoise/deblur and colorization remain separate research items |
+| Video frame interpolation | Research planned | Offline 2x interpolation is the target; model/RKNN and hardware codec feasibility must pass before product integration |
 
 ## Current image contract
 
@@ -52,19 +61,19 @@ If no output is supplied, the result is written to
 board-side temporary job is removed after verified download unless
 `-KeepRemoteArtifacts` is supplied.
 
-## Next implementation order
+## Immediate implementation order
 
-1. Keep the public input limit at 2,000,000 pixels. The 1.92 MP tier passed at
-   137.156 seconds NPU time, 158.146 seconds total and 622344 KiB peak RSS.
-2. Treat inputs above 2 MP as unsafe with the current RKNN Runtime 2.3.2 and
-   driver 0.9.2. The isolated 3 MP test stalled at tile 211/475 with NPU Core0
-   fixed at 100%; SIGTERM/SIGKILL could not recover it and the board had to be
-   rebooted. It was not an OOM, storage or thermal failure.
-3. Revisit larger inputs only after a runtime/driver upgrade or a worker design
-   that releases and reinitializes RKNN between bounded tile batches.
-4. Observe the deployed 7-day retention, 4 GiB quota and 2 GiB free-space
-   reserve under normal public use, then tune only from measured storage data.
+1. Keep the public image limit at 2,000,000 pixels and do not repeat the 3 MP
+   driver-risk test without an explicit diagnostic reason.
+2. Add schema migrations, verified backup/restore and atomic deployment rollback.
+3. Add trusted user identity, task ownership, per-user limits, rate limiting,
+   worker heartbeat and cancellation before introducing public video jobs.
+4. Run an isolated, read-only RK3588 video codec preflight, then evaluate fixed-
+   shape lightweight frame-interpolation models outside the public API.
+5. Expand actual photo-restoration modes and integrate video only through the
+   gates in `product-requirements-roadmap.md`.
 
-The current project is a working authenticated public appliance with a measured
-2 MP safety limit and automatic storage retention. Larger-photo stability and
-runtime/driver resilience is the remaining production gap.
+The current project is a working Access-protected public image appliance with a
+measured 2 MP safety limit, automatic storage retention and health monitoring.
+Application-level identity isolation, recovery/rollback, cancellation, full
+photo-restoration modes and video interpolation remain on the roadmap.

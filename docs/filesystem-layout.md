@@ -42,17 +42,40 @@ This is the canonical model-build workspace. It is not a Git repository.
 
 ```text
 /userdata/photo-restore-v2/
-├── repo/                    deployed runtime scripts/application
+├── app/
+│   ├── backend/             deployed FastAPI source and requirements
+│   ├── frontend/            deployed browser UI
+│   └── worker/              image inference and tiling workers
+├── repo/                    standalone diagnostic/validation scripts
 ├── venv/                    isolated Python 3.9 environment
 ├── models/                  verified RKNN runtime models
+├── database/                SQLite job metadata
+├── storage/
+│   ├── jobs/                isolated API job directories and artifacts
+│   ├── incoming/            reserved upload staging area
+│   ├── outputs/             reserved derivative area
+│   ├── reports/             reserved report area
+│   └── tmp/                 bounded processing and deployment scratch data
 ├── data/
-│   └── validation/          temporary model validation tensors
+│   ├── validation/          temporary model validation tensors
+│   ├── validation-batches/  isolated development batch jobs
+│   └── benchmarks/          isolated driver/performance diagnostics
 ├── benchmarks/              board-generated JSON reports
 ├── logs/                    runtime logs
-└── packages/                board RKNNLite2 wheel
+└── packages/                cached board packages and installers
 ```
 
-Future user data will be split further:
+The deployed API currently keeps each user-visible job together under
+`storage/jobs/<job-id>/`. This is intentional: the input, previews, output,
+report, worker log and temporary state can be checked and removed as one bounded
+unit. The API database stores metadata and paths but not media bytes.
+
+The target multi-user/video layout is defined conceptually in
+`product-requirements-roadmap.md`. Do not move live files into a speculative
+layout before the database migration, backup and rollback design is complete.
+
+The following older proposed layout is superseded and must not be created by
+new code:
 
 ```text
 data/
@@ -63,6 +86,8 @@ data/
 └── validation/              development-only test tensors
 ```
 
+It remains in this document only to explain references in early project history.
+
 ## Retention policy after tile benchmarking
 
 Recommended long-term artifacts:
@@ -70,6 +95,11 @@ Recommended long-term artifacts:
 - Windows: source, docs and small benchmark reports;
 - WSL: official PTH, tile96 ONNX, tile96 RKNN, package wheel and reports;
 - RK3588: tile96 RKNN, project venv, runtime code and reports.
+
+Production API job data follows the configured seven-day terminal retention,
+4 GiB storage quota and 2 GiB free-space reserve. `QUEUED` and `RUNNING` jobs
+must not be removed by automatic cleanup. Development validation and diagnostic
+directories are separate and are cleaned only by their exact owning scripts.
 
 Candidates for removal after explicit approval:
 
@@ -81,4 +111,3 @@ Candidates for removal after explicit approval:
 - validation tensors after the inference pipeline is stable.
 
 Do not remove old pre-existing projects outside `/userdata/photo-restore-v2`.
-
