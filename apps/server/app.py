@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import subprocess
 import threading
+import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,7 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
-SERVICE_VERSION = "0.2.0"
+SERVICE_VERSION = "0.2.1"
 ROOT = Path(os.environ.get("PHOTO_RESTORE_ROOT", "/userdata/photo-restore-v2"))
 STORAGE = ROOT / "storage"
 DATABASE = ROOT / "database" / "jobs.sqlite3"
@@ -34,6 +35,7 @@ ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 JOB_QUEUE: queue.Queue[str] = queue.Queue()
 STOP = threading.Event()
 WORKER_THREAD: threading.Thread | None = None
+PUBLIC_PROCESSING_ERROR = "图片处理失败，请检查文件格式后重试"
 
 
 def utc_now() -> str:
@@ -71,7 +73,9 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, object]:
         "id": row["id"],
         "state": row["state"],
         "original_name": row["original_name"],
-        "error": row["error"],
+        # Never expose worker output, tracebacks, commands or board paths through
+        # the public API. This also sanitizes records created by older versions.
+        "error": PUBLIC_PROCESSING_ERROR if row["state"] == "FAILED" else None,
         "input_sha256": row["input_sha256"],
         "output_sha256": row["output_sha256"],
         "width": row["width"],
@@ -113,7 +117,7 @@ def process_job(job_id: str) -> None:
     completed = subprocess.run(command, capture_output=True, text=True, timeout=3600)
     (input_path.parent / "worker.log").write_text(completed.stdout + completed.stderr, encoding="utf-8")
     if completed.returncode != 0 or not output_path.is_file() or not report_path.is_file():
-        raise RuntimeError(f"worker exit {completed.returncode}: {(completed.stderr or completed.stdout)[-1000:]}")
+        raise RuntimeError(f"worker exited with code {completed.returncode}; see worker.log")
     set_state(job_id, "COMPLETE", output_sha256=sha256(output_path))
 
 
@@ -125,8 +129,17 @@ def worker_loop() -> None:
             continue
         try:
             process_job(job_id)
-        except Exception as exc:
-            set_state(job_id, "FAILED", f"{type(exc).__name__}: {exc}")
+        except Exception:
+            try:
+                row = get_job(job_id)
+                log_path = Path(row["input_path"]).parent / "worker.log"
+                with log_path.open("a", encoding="utf-8") as stream:
+                    stream.write("\n--- API WORKER EXCEPTION ---\n")
+                    stream.write(traceback.format_exc())
+            except (OSError, HTTPException):
+                # A diagnostic write failure must not terminate the queue worker.
+                pass
+            set_state(job_id, "FAILED", PUBLIC_PROCESSING_ERROR)
         finally:
             JOB_QUEUE.task_done()
 

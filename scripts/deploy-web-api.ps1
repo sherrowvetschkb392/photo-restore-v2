@@ -38,8 +38,11 @@ foreach ($FrontendFile in @("index.html", "app.css", "app.js")) {
 
 Write-Output "Installing the pinned API dependencies into the project venv..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "'${Python}' -m pip install -r '${RemoteApp}/requirements-server.txt'" } "Installing the API dependencies"
-Invoke-NativeChecked { ssh @SshOptions $SshHost "PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -m py_compile '${RemoteApp}/app.py' '${RemoteWorker}/restore_image.py' '${RemoteWorker}/tiling.py'; cd '${RemoteApp}' && PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -c 'from app import app, initialize, health; initialize(); assert len(app.routes) >= 9; print(health())'" } "Checking API routes, worker and database"
+Invoke-NativeChecked { ssh @SshOptions $SshHost "PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -m py_compile '${RemoteApp}/app.py' '${RemoteWorker}/restore_image.py' '${RemoteWorker}/tiling.py'; cd '${RemoteApp}' && PHOTO_RESTORE_ROOT='${RemoteRoot}' '${Python}' -c 'from app import app, initialize, health, PUBLIC_PROCESSING_ERROR; initialize(); assert len(app.routes) >= 9; assert len(PUBLIC_PROCESSING_ERROR) < 100; assert not any(ord(c) in (47,92) for c in PUBLIC_PROCESSING_ERROR); print(health())'" } "Checking API routes, error sanitization, worker and database"
 Invoke-NativeChecked { ssh @SshOptions $SshHost "if systemctl is-active --quiet photo-restore-api.service; then sudo systemctl restart photo-restore-api.service; fi" } "Restarting the API service after deployment"
+
+Write-Output "Waiting for the deployed API to become healthy..."
+Invoke-NativeChecked { ssh @SshOptions $SshHost "for wait_step in 1 2 3 4 5 6 7 8 9 10; do if curl --fail --silent http://127.0.0.1:8080/api/health; then exit 0; fi; sleep 1; done; exit 1" } "Checking the deployed API health endpoint"
 
 Write-Output "RESULT=PASS_WEB_API_DEPLOY"
 Write-Output "Service: photo-restore-api.service (127.0.0.1:8080)"
