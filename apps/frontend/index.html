@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>照片修复工作站</title>
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v=0.2.2">
 </head>
 <body>
   <main class="shell">
@@ -40,7 +40,7 @@
       </div>
       <div id="compare" class="compare">
         <img id="result-image" alt="修复后的照片">
-        <div id="original-layer" class="original-layer"><img id="original-image" alt="原始照片放大预览"></div>
+        <div id="original-layer" class="original-layer"><img id="original-image" alt="原始照片等比例放大预览"></div>
         <div id="divider" class="divider" aria-hidden="true"></div>
       </div>
       <label class="compare-control">原图覆盖比例
@@ -55,6 +55,6 @@
       <div id="jobs" class="jobs" aria-live="polite"></div>
     </section>
   </main>
-  <script src="/static/app.js" defer></script>
+  <script src="/static/app.js?v=0.2.2" defer></script>
 </body>
 </html>

@@ -23,6 +23,12 @@ foreach ($Command in @("ssh", "scp")) {
     if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) { throw "Required command unavailable: $Command" }
 }
 
+$FrontendCss = Get-Content (Join-Path $ProjectRoot "apps\frontend\app.css") -Raw
+$FrontendJs = Get-Content (Join-Path $ProjectRoot "apps\frontend\app.js") -Raw
+if ($FrontendCss -match "object-fit\s*:\s*fill" -or $FrontendCss -notmatch "object-fit\s*:\s*contain" -or $FrontendJs -notmatch "clipPath") {
+    throw "Frontend comparison viewer must preserve image aspect ratio and reveal by clipping"
+}
+
 Write-Output "Preparing isolated board API directories..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "mkdir -p '${RemoteApp}' '${RemoteWorker}' '${RemoteFrontend}' '${RemoteRoot}/storage/incoming' '${RemoteRoot}/storage/jobs' '${RemoteRoot}/storage/outputs' '${RemoteRoot}/storage/reports' '${RemoteRoot}/storage/tmp' '${RemoteRoot}/database'" } "Preparing the board API directories"
 

@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, UnidentifiedImageError
 
-SERVICE_VERSION = "0.2.1"
+SERVICE_VERSION = "0.2.2"
 ROOT = Path(os.environ.get("PHOTO_RESTORE_ROOT", "/userdata/photo-restore-v2"))
 STORAGE = ROOT / "storage"
 DATABASE = ROOT / "database" / "jobs.sqlite3"

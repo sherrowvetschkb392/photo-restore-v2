@@ -19,6 +19,9 @@ async function loadHealth(){
 
 function showViewer(job){
   $("viewer-panel").hidden=false;$("viewer-title").textContent=job.original_name;
+  const ratioWidth=Number(job.width)||4,ratioHeight=Number(job.height)||3;
+  $("compare").style.aspectRatio=`${ratioWidth} / ${ratioHeight}`;
+  $("compare-range").value="50";setComparePosition(50);
   $("original-image").src=job.input_url;$("result-image").src=job.output_url;
   $("download-output").href=job.output_url;$("download-report").href=job.report_url;
   $("viewer-panel").scrollIntoView({behavior:"smooth",block:"start"});
@@ -30,6 +33,7 @@ function jobMarkup(job){
   return `<article class="job"><div><div class="job-name">${escapeHtml(job.original_name)} <span class="status ${job.state}">${job.state}</span></div><div class="job-meta">${job.width}×${job.height} · ${dateText(job.created_at_utc)}</div>${error}</div><div class="job-actions">${actions}<button class="ghost delete" data-id="${job.id}" ${job.state==="RUNNING"?"disabled":""}>删除</button></div></article>`;
 }
 function escapeHtml(value){const div=document.createElement("div");div.textContent=value??"";return div.innerHTML}
+function setComparePosition(value){const percent=Math.max(0,Math.min(100,Number(value)));$("original-layer").style.clipPath=`inset(0 ${100-percent}% 0 0)`;$("divider").style.left=`${percent}%`}
 
 async function loadJobs(){
   try{const jobs=await request("/api/jobs");$("empty").hidden=jobs.length>0;$("jobs").innerHTML=jobs.map(jobMarkup).join("");
@@ -53,5 +57,5 @@ form.addEventListener("submit",async event=>{
   catch(error){setMessage(`上传失败：${error.message}`,true)}finally{submit.disabled=false}
 });
 
-$("refresh").addEventListener("click",loadJobs);$("compare-range").addEventListener("input",event=>{const value=`${event.target.value}%`;$("original-layer").style.width=value;$("divider").style.left=value});
+$("refresh").addEventListener("click",loadJobs);$("compare-range").addEventListener("input",event=>setComparePosition(event.target.value));
 loadHealth();loadJobs();
