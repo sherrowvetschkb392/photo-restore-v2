@@ -65,11 +65,21 @@ def initialize() -> None:
 
 
 def row_to_dict(row: sqlite3.Row) -> dict[str, object]:
-    value = dict(row)
-    value["input_url"] = f"/api/jobs/{row['id']}/input"
-    value["output_url"] = f"/api/jobs/{row['id']}/output" if row["state"] == "COMPLETE" else None
-    value["report_url"] = f"/api/jobs/{row['id']}/report" if row["state"] == "COMPLETE" else None
-    return value
+    return {
+        "id": row["id"],
+        "state": row["state"],
+        "original_name": row["original_name"],
+        "error": row["error"],
+        "input_sha256": row["input_sha256"],
+        "output_sha256": row["output_sha256"],
+        "width": row["width"],
+        "height": row["height"],
+        "created_at_utc": row["created_at_utc"],
+        "updated_at_utc": row["updated_at_utc"],
+        "input_url": f"/api/jobs/{row['id']}/input",
+        "output_url": f"/api/jobs/{row['id']}/output" if row["state"] == "COMPLETE" else None,
+        "report_url": f"/api/jobs/{row['id']}/report" if row["state"] == "COMPLETE" else None,
+    }
 
 
 def get_job(job_id: str) -> sqlite3.Row:

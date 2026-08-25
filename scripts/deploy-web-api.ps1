@@ -38,5 +38,4 @@ Invoke-NativeChecked { ssh @SshOptions $SshHost "PHOTO_RESTORE_ROOT='${RemoteRoo
 Invoke-NativeChecked { ssh @SshOptions $SshHost "if systemctl is-active --quiet photo-restore-api.service; then sudo systemctl restart photo-restore-api.service; fi" } "Restarting the API service after deployment"
 
 Write-Output "RESULT=PASS_WEB_API_DEPLOY"
-Write-Output "Next board command:"
-Write-Output "PHOTO_RESTORE_ROOT=${RemoteRoot} ${Python} -m uvicorn app:app --app-dir ${RemoteApp} --host 127.0.0.1 --port 8080"
+Write-Output "Service: photo-restore-api.service (127.0.0.1:8080)"
