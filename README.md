@@ -2,7 +2,8 @@
 
 面向 RK3588 的离线老照片修复工作站。
 
-当前阶段：设备审计与 RKNN 推理基线验证。
+当前阶段：RKNN 模型、板端 NPU 推理、批量验证和单图 CLI 已验证；下一阶段是
+大图生产化和本地用户界面。
 
 已确定首版推理参数：RealESRGAN x4plus FP16、固定 96×96 输入 tile、
 每边初始重叠 8 输入像素。最终 overlap 由真实照片接缝测试确认。
@@ -49,8 +50,40 @@
 
 详细流程见 `docs/development-workflow.md`。
 
+原始需求、当前完成度和后续缺口见 `docs/requirements-status.md`；图片输入输出
+约定见该文档的 “Current image contract” 小节。
+
 三端目录结构和保留策略见 `docs/filesystem-layout.md`。只读盘点：
 
 ```powershell
 .\scripts\inventory-storage.ps1
+```
+
+运行小型图片端到端原型验收（核心测试、依赖检查、板端推理和结果回传）：
+
+```powershell
+.\scripts\deploy-image-prototype.ps1
+```
+
+样图验收通过后，处理一张真实照片（首版最多 2,000,000 输入像素）：
+
+```powershell
+.\scripts\restore-photo.ps1 -InputImage "C:\path\to\photo.jpg"
+```
+
+默认输出到 `benchmarks\restored\`，同时生成 JSON 运行报告。输入和输出均被
+`.gitignore` 排除，不会提交到 Git。结果成功下载后，板端该任务的输入、输出和
+报告会自动清理；调试时可加 `-KeepRemoteArtifacts` 保留。
+
+批量验证集的原图固定放在 `data\validation\<名称>\raw\`，来源和许可证清单
+放在 `datasets\manifests\`。批量运行示例：
+
+```powershell
+.\scripts\restore-validation-set.ps1 -DatasetName "public-domain-history"
+```
+
+若要丢弃该数据集上次生成的结果并从第一张重新运行：
+
+```powershell
+.\scripts\restore-validation-set.ps1 -DatasetName "div2k-x4-sample" -RestartDataset
 ```
