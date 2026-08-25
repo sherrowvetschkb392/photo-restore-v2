@@ -1,0 +1,93 @@
+---SECTION:PLATFORM---
+architecture=aarch64
+kernel=5.10.160
+hostname=sample-rk3588
+user=linaro
+groups=linaro,video,render
+os_id=debian
+os_version=11
+os_pretty=Debian GNU/Linux 11
+---SECTION:TOOLS---
+ffmpeg_path=/usr/bin/ffmpeg
+ffprobe_path=/usr/bin/ffprobe
+gst_launch_1.0_path=/usr/bin/gst-launch-1.0
+gst_inspect_1.0_path=/usr/bin/gst-inspect-1.0
+v4l2_ctl_path=/usr/bin/v4l2-ctl
+vainfo_path=missing
+modetest_path=/usr/bin/modetest
+ffmpeg_version=ffmpeg version 4.3.7
+ffprobe_version=ffprobe version 4.3.7
+gstreamer_version=gst-launch-1.0 version 1.18.4
+---SECTION:FFMPEG_CONFIGURATION---
+ffmpeg version 4.3.7
+built with gcc 10
+configuration: --enable-gpl --enable-libdrm
+libavutil 56. 51.100 / 56. 51.100
+---SECTION:FFMPEG_HWACCELS---
+Hardware acceleration methods:
+drm
+opencl
+---SECTION:FFMPEG_DECODERS---
+ V..... h264_rkmpp           Rockchip MPP H264 decoder
+ V..... hevc_rkmpp           Rockchip MPP HEVC decoder
+---SECTION:FFMPEG_ENCODERS---
+ V..... h264_rkmpp           Rockchip MPP H264 encoder
+ V..... hevc_rkmpp           Rockchip MPP HEVC encoder
+---SECTION:FFMPEG_FILTERS---
+ ... minterpolate      V->V       Frame rate conversion using Motion Interpolation.
+ ... scdet             V->V       Detect video scene change
+ ... scale             V->V       Scale the input video size
+---SECTION:DEVICES---
+/dev/mpp_service|present|readable=true|writable=true
+/dev/rga|present|readable=true|writable=true
+/dev/dri/renderD128|present|readable=true|writable=true
+/dev/dri/renderD129|missing|readable=false|writable=false
+/dev/mali0|present|readable=true|writable=true
+/dev/rknpu|missing|readable=false|writable=false
+/dev/video0|present|readable=true|writable=true
+---SECTION:V4L2_DEVICES---
+rockchip-vpu-dec (platform:rkvdec):
+	/dev/video0
+---SECTION:GSTREAMER_PLUGINS---
+mppvideodec=available
+mpph264enc=available
+mpph265enc=available
+rkv4l2h264enc=missing
+rkv4l2h265enc=missing
+---SECTION:PACKAGES---
+ffmpeg|7:4.3.7-0+deb11u1
+gstreamer1.0-rockchip1|1.18.4
+librockchip-mpp1|1.0.11
+librga2|2.1.0
+---SECTION:KERNEL_MODULES---
+rknpu 99999 0
+---SECTION:PYTHON---
+python_path=/userdata/photo-restore-v2/venv/bin/python
+python_version=3.9.2
+python_architecture=aarch64
+opencv_available=false
+executable=/userdata/photo-restore-v2/venv/bin/python
+opencv_version=missing
+---SECTION:RESOURCES---
+memory_total_bytes=4053000000
+memory_available_bytes=3200000000
+swap_total_bytes=0
+filesystem_total_bytes=16000000000
+filesystem_used_bytes=500000000
+filesystem_available_bytes=15000000000
+filesystem_used_percent=4%
+uptime_seconds=86400
+npu_load=NPU load: Core0: 0%, Core1: 0%, Core2: 0%,
+---SECTION:THERMAL---
+soc-thermal=34000
+npu-thermal=33000
+---SECTION:SERVICES---
+photo_restore_api_service_active=active
+photo_restore_api_service_enabled=enabled
+cloudflared_service_active=active
+cloudflared_service_enabled=enabled
+---SECTION:PROCESSES---
+restore_worker_count=0
+ffmpeg_process_count=0
+video_worker_count=0
+---END---

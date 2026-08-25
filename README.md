@@ -135,3 +135,63 @@ systemd 服务、Cloudflare Access 公网入口、长期存储治理和生产健
 该命令不会删除任务、终止进程或重启板子。结果同时写入忽略 Git 的
 `benchmarks\production-health\latest.json`；若发现运行任务超过 10 分钟且 NPU
 持续高负载，会提示疑似驱动卡死并要求人工检查。
+
+只读盘点 RK3588 的视频研发基础（FFmpeg/ffprobe、MPP/RGA、硬件编解码证据、
+GStreamer、设备节点、内存、磁盘、温度和现有生产服务）：
+
+```powershell
+.\scripts\video-preflight.ps1
+```
+
+该命令不会安装软件、修改 systemd、启动视频推理或触碰现有图片任务。原始证据和
+结构化报告分别写入忽略 Git 的 `benchmarks\video-preflight\latest-raw.txt` 与
+`latest.json`。离线验证脚本自身的解析和边界检查：
+
+```powershell
+.\scripts\video-preflight.ps1 -ValidateOnly
+```
+
+真实预检确认板端已有 MPP/RGA 和 GStreamer Rockchip 硬件编解码插件，但缺少
+FFmpeg/ffprobe。先只模拟 Debian FFmpeg 安装计划：
+
+```powershell
+.\scripts\install-video-tools.ps1
+```
+
+确认没有删除或替换 Rockchip 包后，才显式安装：
+
+```powershell
+.\scripts\install-video-tools.ps1 -Install
+```
+
+详细证据、工具分工和下一项硬件编解码冒烟测试见
+`docs/video-development.md`。
+
+FFmpeg/ffprobe 安装和复验通过后，运行隔离的 640×360 MPP 硬件编解码测试：
+
+```powershell
+.\scripts\test-video-codec.ps1
+```
+
+该命令必须实际使用 `mpph264enc` 和 `mppvideodec`，生成带 AAC 音频的 10 秒
+MP4，并用 ffprobe 验证尺寸、帧率、帧数、时长和音频。它不会运行 RKNN 模型，
+也不会停止或重启图片 API 与 Cloudflare Tunnel。
+
+生成模型无关的 256×256 相邻帧/真实中间帧夹具，并验证统一插帧输出合同：
+
+```powershell
+.\scripts\prepare-interpolation-fixtures.ps1
+```
+
+夹具覆盖线性运动、遮挡/显露、细线纹理和场景切换；候选模型输出必须优于复制邻帧
+与简单平均基线，场景切换必须跳过模型。生成数据和评估报告均被 Git 忽略。
+
+生成视频空间增强（画质/分辨率）夹具：
+
+```powershell
+.\scripts\prepare-video-enhancement-fixtures.ps1
+```
+
+该合同要求短时序输入输出 2× 或 4× 高分辨率帧，并同时检查空间误差与时间一致性；
+场景切换必须重置时序状态。它用于筛选 BasicVSR++、RealBasicVSR、RVRT 等候选，
+不会把图片 Real-ESRGAN 逐帧直接冒充视频修复。

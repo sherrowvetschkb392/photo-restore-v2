@@ -1,0 +1,11 @@
+NOTE: This is only a simulation!
+Reading package lists...
+Building dependency tree...
+The following packages will be REMOVED:
+  gstreamer1.0-rockchip1 librockchip-mpp1
+The following NEW packages will be installed:
+  ffmpeg libavcodec58
+0 upgraded, 2 newly installed, 2 to remove and 0 not upgraded.
+Remv gstreamer1.0-rockchip1 [1.14-4]
+Remv librockchip-mpp1 [1.5.0-1]
+Inst ffmpeg (7:4.3.7-0+deb11u1 Debian:11.11/oldstable [arm64])

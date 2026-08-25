@@ -1,0 +1,12 @@
+NOTE: This is only a simulation!
+Reading package lists...
+Building dependency tree...
+The following additional packages will be installed:
+  libavcodec58 libavdevice58 libavfilter7 libavformat58 libavresample4
+  libavutil56 libpostproc55 libswresample3 libswscale5
+The following NEW packages will be installed:
+  ffmpeg libavcodec58 libavdevice58 libavfilter7 libavformat58 libavresample4
+  libavutil56 libpostproc55 libswresample3 libswscale5
+0 upgraded, 10 newly installed, 0 to remove and 0 not upgraded.
+Inst ffmpeg (7:4.3.7-0+deb11u1 Debian:11.11/oldstable [arm64])
+Conf ffmpeg (7:4.3.7-0+deb11u1 Debian:11.11/oldstable [arm64])
