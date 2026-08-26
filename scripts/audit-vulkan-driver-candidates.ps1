@@ -41,8 +41,10 @@ foreach ($Line in $Text -split "`r?`n") {
     }
 }
 $CandidatePackages = @($Sections.APT_PACKAGE_NAMES | Where-Object { $_ -match '^[a-z0-9][a-z0-9+.-]+$' } | Select-Object -Unique)
-$VendorCandidatePackages = @($CandidatePackages | Where-Object { $_ -match '(?i)libmali|mali.*g610|g610.*mali' })
+$VendorCandidatePackages = @($CandidatePackages | Where-Object { $_ -match '(?i)libmali|mali.*g610|g610.*mali' -and $_ -notmatch '(?i)dbgsym|dbg|dev' })
 $MesaCandidatePackages = @($CandidatePackages | Where-Object { $_ -match '(?i)mesa-vulkan|panvk|panfrost' })
+$RepositoryVendorVersions = @($Sections.APT_VENDOR_REPOSITORY_VERSIONS | Where-Object { $_ -match '^[a-z0-9][a-z0-9+.-]+\|' })
+$LocalVendorArtifacts = @($Sections.LOCAL_VENDOR_ARTIFACTS | Where-Object { $_ -match '^/' })
 $MaliFiles = @($Sections.INSTALLED_MALI_FILES | Where-Object { $_ -match '^/' })
 $HasVulkanIcdFile = @($MaliFiles | Where-Object { $_ -match '(?i)vulkan.*icd.*\.json$|icd\.d/.+\.json$' }).Count -gt 0
 $HasVulkanLibraryFile = @($MaliFiles | Where-Object { $_ -match '(?i)libvulkan|vulkan' }).Count -gt 0
@@ -51,13 +53,25 @@ $BuildRemovals = @($BuildSimulation | Where-Object { $_ -match '^Remv\s' })
 $MesaSimulation = @($Sections.MESA_VULKAN_SIMULATION)
 $MesaRemovals = @($MesaSimulation | Where-Object { $_ -match '^Remv\s' })
 $ProductionHealthy = @($Sections.PRODUCTION | Where-Object { $_ -eq 'api_active=active' }).Count -gt 0 -and @($Sections.PRODUCTION | Where-Object { $_ -eq 'tunnel_active=active' }).Count -gt 0
+$InstalledPackageLine = @($Sections.INSTALLED_MALI_PACKAGE | Where-Object { $_ -match '^package=' } | Select-Object -First 1)
+$InstalledPackageName = if ($InstalledPackageLine) { $InstalledPackageLine -replace '^package=', '' } else { '' }
+$KernelDdkLine = @($Sections.GPU_KERNEL | Where-Object { $_ -match 'Kernel DDK version' } | Select-Object -Last 1)
+$KernelDdkVersion = if ($KernelDdkLine -match '(?<version>g\d+p\d+)') { $Matches.version } else { $null }
+$UserDdkVersion = if ($InstalledPackageName -match '(?<version>g\d+p\d+)') { $Matches.version } else { $null }
+$DdkVersionMismatch = $null -ne $KernelDdkVersion -and $null -ne $UserDdkVersion -and $KernelDdkVersion -ne $UserDdkVersion
+$BoardIdentity = @($Sections.BOARD_IDENTITY)
+$BootFirmware = @($Sections.BOOT_FIRMWARE)
 
 $Assessment = if (-not $ProductionHealthy) {
     "BLOCKED_PRODUCTION_UNHEALTHY"
-} elseif ($VendorCandidatePackages.Count -gt 0) {
+} elseif ($HasVulkanIcdFile -and -not $DdkVersionMismatch) {
+    "EXISTING_VENDOR_VULKAN_DRIVER_DETECTED"
+} elseif ($RepositoryVendorVersions.Count -gt 0) {
     "READY_FOR_VENDOR_CANDIDATE_REVIEW"
+} elseif ($DdkVersionMismatch) {
+    "BLOCKED_DDK_VERSION_MISMATCH_NO_REPOSITORY_CANDIDATE"
 } elseif ($MesaCandidatePackages.Count -gt 0) {
-    "ONLY_GENERIC_MESA_CANDIDATE_AVAILABLE"
+    "ONLY_UNSUPPORTED_DEBIAN11_MESA_CANDIDATE_AVAILABLE"
 } else {
     "NO_VENDOR_VULKAN_PACKAGE_IN_CURRENT_APT_METADATA"
 }
@@ -70,8 +84,15 @@ $Report = [ordered]@{
     installed_mali_file_count = $MaliFiles.Count
     installed_package_contains_vulkan_icd = $HasVulkanIcdFile
     installed_package_contains_vulkan_library = $HasVulkanLibraryFile
+    kernel_ddk_version = $KernelDdkVersion
+    userspace_ddk_version = $UserDdkVersion
+    ddk_version_mismatch = $DdkVersionMismatch
+    board_identity = $BoardIdentity
+    boot_firmware = $BootFirmware
     apt_candidate_packages = $CandidatePackages
     vendor_candidate_packages = $VendorCandidatePackages
+    repository_vendor_versions = $RepositoryVendorVersions
+    local_vendor_artifacts = $LocalVendorArtifacts
     mesa_candidate_packages = $MesaCandidatePackages
     build_tool_simulation = [ordered]@{ removals = $BuildRemovals; safe_no_removals = $BuildRemovals.Count -eq 0 }
     mesa_vulkan_simulation = [ordered]@{ removals = $MesaRemovals; safe_no_removals = $MesaRemovals.Count -eq 0 }
@@ -84,6 +105,9 @@ Write-Output "APT Vulkan/Mali candidates: $($CandidatePackages.Count)"
 if ($CandidatePackages.Count) { Write-Output "Candidates: $($CandidatePackages -join ', ')" }
 Write-Output "Vendor G610/Mali candidates: $($VendorCandidatePackages.Count)"
 if ($VendorCandidatePackages.Count) { Write-Output "Vendor candidates: $($VendorCandidatePackages -join ', ')" }
+Write-Output "Vendor versions available from configured repositories: $($RepositoryVendorVersions.Count)"
+Write-Output "Driver pair: kernel=$KernelDdkVersion; userspace=$UserDdkVersion; mismatch=$DdkVersionMismatch"
+Write-Output "Local vendor driver artifacts: $($LocalVendorArtifacts.Count)"
 Write-Output "Build-tool simulation removals: $($BuildRemovals.Count)"
 Write-Output "Mesa Vulkan simulation removals: $($MesaRemovals.Count)"
 Write-Output "Production healthy: $ProductionHealthy"
