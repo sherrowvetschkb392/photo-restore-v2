@@ -146,3 +146,24 @@ This route still requires a read-only Vulkan/ICD inventory, an isolated NCNN
 build/runtime smoke test, model checksum/license recording, scene-cut bypass,
 and real video quality/performance measurement. A Vulkan path is not assumed
 merely because `/dev/mali0` exists.
+
+### Existing-system heterogeneous route
+
+Replacing the production operating system is deferred. The Linux 5.10 / Debian
+11 deployment should use each accelerator for the work it handles best:
+
+1. MPP performs hardware video decode and encode;
+2. RGA performs supported resize, colour conversion and buffer movement;
+3. RKNN/NPU remains the primary spatial-enhancement backend;
+4. Mali OpenCL is considered for a pre-trained MNN/TNN interpolation backend
+   only after a direct `clGetPlatformIDs`/device probe passes;
+5. CAIN is the first RKNN interpolation candidate because its channel-attention
+   design avoids the optical-flow `GridSample` path that blocks RIFE/IFRNet;
+6. CPU workers handle scene-cut detection, scheduling, audio muxing and a
+   traditional FFmpeg interpolation fallback.
+
+The OpenCL loader file alone is not evidence of a usable GPU runtime. Run
+`scripts/video-opencl-preflight.ps1`; only
+`READY_FOR_OPENCL_INFERENCE_BACKEND_PROBE` permits an MNN/TNN OpenCL smoke
+test. If the gate is blocked, proceed with CAIN fixed-shape ONNX/RKNN operator
+inspection without changing the board runtime.
