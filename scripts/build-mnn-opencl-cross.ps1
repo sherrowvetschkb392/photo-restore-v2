@@ -3,6 +3,7 @@ param(
     [string]$SshHost = "rk3588",
     [string]$MnnRef = "3.0.0",
     [string]$WslWorkRoot = "/mnt/d/photo-restore-mnn-opencl",
+    [string]$PythonBin = "/home/ljd/miniconda3/envs/photo-restore-videoexport/bin/python",
     [switch]$InstallBuildTools
 )
 
@@ -41,7 +42,9 @@ $Install = if ($InstallBuildTools) { "true" } else { "false" }
 
 Write-Output "Building pinned MNN $MnnRef in isolated WSL paths..."
 Write-Output "Board packages and production services will not be changed."
-& wsl.exe -d $Distribution -- bash $WslBuildScript $WslProjectRoot $WslOutput $MnnRef $Install $WslOpenCl $WslWorkRoot
+$WslPythonBin = $PythonBin
+Write-Output "Using WSL Python: $WslPythonBin"
+& wsl.exe -d $Distribution -- env PYTHON_BIN=$WslPythonBin bash $WslBuildScript $WslProjectRoot $WslOutput $MnnRef $Install $WslOpenCl $WslWorkRoot
 if ($LASTEXITCODE -ne 0) {
     $Hint = if (-not $InstallBuildTools) { " Rerun with -InstallBuildTools if the output reports a missing compiler or build dependency." } else { "" }
     throw "The isolated MNN OpenCL cross-build failed with exit code $LASTEXITCODE.$Hint"

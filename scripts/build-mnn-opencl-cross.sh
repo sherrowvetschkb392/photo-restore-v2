@@ -9,6 +9,21 @@ OPENCL_LIBRARY="${5:?ARM64 OpenCL library is required}"
 WORK_ROOT="${6:-/mnt/d/photo-restore-mnn-opencl}"
 SOURCE_ROOT="${WORK_ROOT}/MNN"
 
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "${PYTHON_BIN}" ]]; then
+    for candidate in \
+        /home/ljd/miniconda3/envs/photo-restore-videoexport/bin/python \
+        /home/ljd/miniconda3/envs/photo-restore-rknn232/bin/python \
+        python3; do
+        if command -v "${candidate}" >/dev/null 2>&1 || [[ -x "${candidate}" ]]; then
+            if "${candidate}" -c 'import onnx, numpy' >/dev/null 2>&1; then
+                PYTHON_BIN="${candidate}"
+                break
+            fi
+        fi
+    done
+fi
+
 if [[ "${INSTALL_TOOLS}" == "true" ]]; then
     sudo apt-get install -y --no-install-recommends \
         git cmake ninja-build build-essential \
@@ -22,8 +37,8 @@ for command in git cmake ninja aarch64-linux-gnu-gcc aarch64-linux-gnu-g++ pytho
         exit 2
     }
 done
-python3 -c 'import onnx, numpy' >/dev/null 2>&1 || {
-    printf '%s\n' 'ERROR=python_modules_missing:onnx_or_numpy' >&2
+[[ -n "${PYTHON_BIN}" ]] || {
+    printf '%s\n' 'ERROR=python_modules_missing:onnx_or_numpy:checked_videoexport_rknn232_system' >&2
     exit 3
 }
 [[ -f "${OPENCL_LIBRARY}" ]] || { printf 'ERROR=opencl_library_missing:%s\n' "${OPENCL_LIBRARY}" >&2; exit 4; }
@@ -82,7 +97,7 @@ cmake --build "${ARM_BUILD}" --target MNN -j "$(nproc)"
 
 ONNX_MODEL="${OUTPUT_ROOT}/mnn-opencl-smoke.onnx"
 MNN_MODEL="${OUTPUT_ROOT}/mnn-opencl-smoke.mnn"
-python3 "${PROJECT_ROOT}/tools/mnn/make_opencl_smoke_onnx.py" \
+"${PYTHON_BIN}" "${PROJECT_ROOT}/tools/mnn/make_opencl_smoke_onnx.py" \
     --output "${ONNX_MODEL}" \
     --report "${OUTPUT_ROOT}/mnn-opencl-smoke-onnx.json"
 "${MNN_CONVERT}" -f ONNX --modelFile "${ONNX_MODEL}" --MNNModel "${MNN_MODEL}" --bizCode photo_restore_v2
@@ -116,6 +131,7 @@ sha256sum \
 
 printf 'MNN_REF=%s\n' "${MNN_REF}"
 printf 'MNN_COMMIT=%s\n' "${MNN_COMMIT}"
+printf 'PYTHON_BIN=%s\n' "${PYTHON_BIN}"
 printf 'OUTPUT=%s\n' "${OUTPUT_ROOT}"
 printf 'WORK_ROOT=%s\n' "${WORK_ROOT}"
 printf '%s\n' 'BOARD_UPLOAD=False'
