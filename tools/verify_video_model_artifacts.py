@@ -7,6 +7,8 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import os
+import re
 
 
 def sha256(path: Path) -> str:
@@ -15,6 +17,21 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def resolve_artifact_path(value: str, record_path: Path) -> Path:
+    """Resolve records created on Windows when verification runs inside WSL."""
+    path = Path(value)
+    if path.is_file():
+        return path
+    match = re.match(r"^([A-Za-z]):[\\/](.*)$", value)
+    if match and os.name != "nt":
+        candidate = Path("/mnt") / match.group(1).lower() / match.group(2).replace("\\", "/")
+        if candidate.is_file():
+            return candidate
+    if not path.is_absolute():
+        return record_path.parent / path
+    return path
 
 
 def verify(record_path: Path) -> list[str]:
@@ -27,7 +44,7 @@ def verify(record_path: Path) -> list[str]:
     if record.get("board_upload") is not False:
         errors.append("record must declare board_upload=false")
     for item in record.get("artifacts", []):
-        path = Path(item["path"])
+        path = resolve_artifact_path(str(item["path"]), record_path)
         if not path.is_file():
             errors.append(f"missing artifact: {path}")
             continue

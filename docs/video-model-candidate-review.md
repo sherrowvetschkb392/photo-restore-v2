@@ -38,8 +38,8 @@ restoration should be independently switchable and measurable.
 |---|---|---|---|---|
 | IFRNet | 2× frame interpolation | Relatively compact, direct two-frame midpoint contract | Flow/warp implementation and export shape must be inspected | Lighter interpolation fallback |
 | RIFE (small variant) | 2× frame interpolation | Mature frame interpolation family with small variants | Version/license and custom warp operators vary by repository | Interpolation primary |
-| BasicVSR++ | Temporal video super-resolution | Strong temporal propagation and 2×/4× spatial enhancement | Deformable alignment, long recurrent state, high memory | Quality backup; only if primary fails or board budget allows |
-| RealBasicVSR | Real-world video super-resolution | Restoration-oriented spatial quality and temporal consistency | Degradation model and recurrent alignment may not export cleanly | Spatial quality primary |
+| BasicVSR++ | Temporal video super-resolution | Strong temporal propagation and official 2×/4× enhancement checkpoints | Deformable alignment, long recurrent state, high memory | Spatial quality primary prototype |
+| RealBasicVSR | Real-world video super-resolution | Restoration-oriented cleanup and temporal consistency | Degradation model and recurrent alignment may not export cleanly | Optional 1× cleanup stage |
 | RVRT | Temporal video super-resolution | Windowed transformer alternative for restoration | Attention/memory cost and unsupported operators | Deferred unless lightweight candidates fail |
 
 The table is a prioritization, not a license assertion. The license of the
