@@ -55,14 +55,63 @@ done
 
 section VULKANINFO
 if command -v vulkaninfo >/dev/null 2>&1; then
-    if timeout 15s vulkaninfo --summary 2>&1; then
-        printf 'vulkaninfo_exit_code=0\n'
+    vulkan_output="$(timeout 15s vulkaninfo --summary 2>&1)"
+    code=$?
+    printf '%s\n' "$vulkan_output"
+    printf 'vulkaninfo_exit_code=%s\n' "$code"
+    if printf '%s\n' "$vulkan_output" | grep -Eq 'ERROR_INCOMPATIBLE_DRIVER|Cannot create Vulkan instance'; then
+        printf 'vulkaninfo_semantic_status=failed\n'
+    elif printf '%s\n' "$vulkan_output" | grep -Eq 'deviceName|GPU id|Vulkan Instance Version'; then
+        printf 'vulkaninfo_semantic_status=passed\n'
     else
-        code=$?
-        printf 'vulkaninfo_exit_code=%s\n' "$code"
+        printf 'vulkaninfo_semantic_status=unknown\n'
     fi
 else
     printf 'vulkaninfo_exit_code=missing\n'
+    printf 'vulkaninfo_semantic_status=missing\n'
+fi
+
+section MALI_ICD_PROBE
+MALI_LIBRARY=''
+for candidate in /lib/aarch64-linux-gnu/libmali.so.1 /usr/lib/aarch64-linux-gnu/libmali.so.1; do
+    if [ -f "$candidate" ]; then MALI_LIBRARY="$candidate"; break; fi
+done
+if [ -z "$MALI_LIBRARY" ]; then
+    printf 'mali_library=missing\n'
+    printf 'mali_icd_probe_status=unavailable\n'
+else
+    printf 'mali_library=%s\n' "$MALI_LIBRARY"
+    if command -v readelf >/dev/null 2>&1; then
+        if readelf -Ws "$MALI_LIBRARY" 2>/dev/null | grep -q 'vk_icdGetInstanceProcAddr'; then
+            printf 'mali_icd_symbol=vk_icdGetInstanceProcAddr\n'
+        elif readelf -Ws "$MALI_LIBRARY" 2>/dev/null | grep -q 'vkGetInstanceProcAddr'; then
+            printf 'mali_icd_symbol=vkGetInstanceProcAddr\n'
+        else
+            printf 'mali_icd_symbol=missing\n'
+        fi
+    else
+        printf 'mali_icd_symbol=readelf_missing\n'
+    fi
+    if command -v vulkaninfo >/dev/null 2>&1; then
+        TEMP_ICD="$(mktemp /tmp/photo-restore-mali-icd.XXXXXX.json)"
+        trap 'rm -f "$TEMP_ICD"' EXIT
+        printf '{"file_format_version":"1.0.0","ICD":{"library_path":"%s","api_version":"1.1.0"}}\n' "$MALI_LIBRARY" > "$TEMP_ICD"
+        mali_output="$(VK_ICD_FILENAMES="$TEMP_ICD" timeout 15s vulkaninfo --summary 2>&1)"
+        mali_code=$?
+        printf '%s\n' "$mali_output"
+        printf 'mali_icd_probe_exit_code=%s\n' "$mali_code"
+        if printf '%s\n' "$mali_output" | grep -Eq 'ERROR_INCOMPATIBLE_DRIVER|Cannot create Vulkan instance'; then
+            printf 'mali_icd_probe_status=failed\n'
+        elif printf '%s\n' "$mali_output" | grep -Eq 'deviceName|GPU id|Vulkan Instance Version'; then
+            printf 'mali_icd_probe_status=passed\n'
+        else
+            printf 'mali_icd_probe_status=unknown\n'
+        fi
+        rm -f "$TEMP_ICD"
+        trap - EXIT
+    else
+        printf 'mali_icd_probe_status=vulkaninfo_missing\n'
+    fi
 fi
 
 section GPU_PACKAGES

@@ -50,18 +50,21 @@ $RenderReady = @($DeviceLines | Where-Object { $_ -match '^/dev/dri/renderD12[89
 $HasVulkanLibrary = @($Sections.VULKAN_LIBRARIES | Where-Object { $_ -match 'libvulkan' }).Count -gt 0
 $HasIcd = @($Sections.VULKAN_ICD | Where-Object { $_ -match '^icd=/' }).Count -gt 0
 $VulkanInfoAvailable = $ToolValues.vulkaninfo -and $ToolValues.vulkaninfo -ne "missing"
-$VulkanInfoExit = @($Sections.VULKANINFO | Where-Object { $_ -match '^vulkaninfo_exit_code=' } | Select-Object -Last 1)
-$VulkanInfoPassed = $VulkanInfoAvailable -and $VulkanInfoExit -eq "vulkaninfo_exit_code=0"
+$VulkanInfoStatus = @($Sections.VULKANINFO | Where-Object { $_ -match '^vulkaninfo_semantic_status=' } | Select-Object -Last 1)
+$VulkanInfoPassed = $VulkanInfoAvailable -and $VulkanInfoStatus -eq "vulkaninfo_semantic_status=passed"
+$MaliIcdStatus = @($Sections.MALI_ICD_PROBE | Where-Object { $_ -match '^mali_icd_probe_status=' } | Select-Object -Last 1)
+$MaliIcdProbePassed = $MaliIcdStatus -eq "mali_icd_probe_status=passed"
+$MaliLibrary = @($Sections.MALI_ICD_PROBE | Where-Object { $_ -match '^mali_library=' } | Select-Object -Last 1)
 $BuildTools = @("cmake", "git", "gxx")
 $MissingBuildTools = @($BuildTools | Where-Object { -not $ToolValues[$_] -or $ToolValues[$_] -eq "missing" })
 $ExistingNcnn = @($Sections.EXISTING_NCNN | Where-Object { $_ -match '^/' })
 
 $Blockers = [System.Collections.Generic.List[string]]::new()
 if (-not $MaliReady -and -not $RenderReady) { $Blockers.Add("no_writable_gpu_device") }
-if ($VulkanInfoAvailable -and -not $VulkanInfoPassed) { $Blockers.Add("vulkan_runtime_probe_failed") }
 if (-not $HasVulkanLibrary) { $Blockers.Add("vulkan_loader_not_detected") }
-if (-not $HasIcd) { $Blockers.Add("vulkan_icd_not_detected") }
-$Assessment = if ($Blockers.Count) { "BLOCKED" } elseif ($VulkanInfoPassed) { "READY_FOR_NCNN_BUILD_SMOKE" } else { "READY_FOR_VULKANINFO_INSTALL_PLAN" }
+if (-not $VulkanInfoPassed -and -not $MaliIcdProbePassed) { $Blockers.Add("vulkan_runtime_probe_failed") }
+if (-not $HasIcd -and -not $MaliIcdProbePassed) { $Blockers.Add("vulkan_icd_not_detected") }
+$Assessment = if ($Blockers.Count) { "BLOCKED" } elseif ($VulkanInfoPassed -or $MaliIcdProbePassed) { "READY_FOR_NCNN_BUILD_SMOKE" } else { "READY_FOR_VULKANINFO_INSTALL_PLAN" }
 
 $Report = [ordered]@{
     schema_version = 1
@@ -69,7 +72,14 @@ $Report = [ordered]@{
     assessment = $Assessment
     board_changed = $false
     gpu = [ordered]@{ mali_device_ready = $MaliReady; render_device_ready = $RenderReady }
-    vulkan = [ordered]@{ loader_available = $HasVulkanLibrary; icd_available = $HasIcd; vulkaninfo_available = [bool]$VulkanInfoAvailable; runtime_probe_passed = [bool]$VulkanInfoPassed }
+    vulkan = [ordered]@{
+        loader_available = $HasVulkanLibrary
+        system_icd_available = $HasIcd
+        vulkaninfo_available = [bool]$VulkanInfoAvailable
+        system_runtime_probe_passed = [bool]$VulkanInfoPassed
+        private_mali_icd_probe_passed = [bool]$MaliIcdProbePassed
+        mali_library = ($MaliLibrary -replace '^mali_library=', '')
+    }
     build = [ordered]@{ missing_tools = $MissingBuildTools }
     gpu_packages = @($Sections.GPU_PACKAGES)
     existing_ncnn_binaries = $ExistingNcnn
@@ -83,7 +93,7 @@ $Report = [ordered]@{
 }
 $Report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $JsonReport -Encoding utf8
 Write-Output "GPU: mali=$MaliReady; render=$RenderReady"
-Write-Output "Vulkan: loader=$HasVulkanLibrary; ICD=$HasIcd; vulkaninfo=$VulkanInfoAvailable; runtime=$VulkanInfoPassed"
+Write-Output "Vulkan: loader=$HasVulkanLibrary; system ICD=$HasIcd; system runtime=$VulkanInfoPassed; private Mali ICD=$MaliIcdProbePassed"
 Write-Output "Existing NCNN binaries: $($ExistingNcnn.Count)"
 Write-Output "Missing build tools: $(if ($MissingBuildTools.Count) { $MissingBuildTools -join ', ' } else { 'none' })"
 Write-Output "Assessment: $Assessment"
