@@ -205,3 +205,12 @@ MP4，并用 ffprobe 验证尺寸、帧率、帧数、时长和音频。它不�
 ```powershell
 python tools/validate_video_model_manifest.py datasets/manifests/video-model-candidates.json
 ```
+
+联网可用时，只读取候选公开仓库的元数据、许可证接口和 README（不下载权重、不上传板子）：
+
+```powershell
+.\scripts\fetch-video-model-metadata.ps1 -Candidate RealBasicVSR
+```
+
+结果隔离在 `data\video-development\model-candidates\`，需要人工确认具体提交、许可证
+和权重来源后，才允许进入 ONNX/RKNN 评估。
