@@ -169,7 +169,9 @@ $Text | Set-Content -LiteralPath $OutputReport -Encoding utf8
 if ($Code -ne 0) { throw "The MNN OpenCL framework smoke test failed with exit code $Code.`n$Text" }
 foreach ($Required in @(
     'BACKEND=OPENCL',
+    'BACKEND_TYPE=3',
     'MISMATCHES=0',
+    'NON_FINITE=0',
     'RESULT=PASS_MNN_OPENCL_FRAMEWORK_SMOKE',
     'api_after=active',
     'tunnel_after=active'
