@@ -79,7 +79,6 @@ rm -rf "${OPENCL_INCLUDE}"
 mkdir -p "${OPENCL_INCLUDE}/CL"
 cp -a /usr/include/CL/. "${OPENCL_INCLUDE}/CL/"
 
-rm -rf "${ARM_BUILD}"
 cmake -S "${SOURCE_ROOT}" -B "${ARM_BUILD}" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_SYSTEM_NAME=Linux \
