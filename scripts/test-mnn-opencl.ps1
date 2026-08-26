@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = (Resolve-Path (Split-Path -Parent $PSScriptRoot)).Path
 $ArtifactDirectory = Join-Path $ProjectRoot "data\video-development\mnn-opencl-cross\output"
+$OpenClLibrary = Join-Path $ProjectRoot "data\video-development\mnn-opencl-cross\libOpenCL.so.1.0.0"
 $ReportDirectory = Join-Path $ProjectRoot "benchmarks\mnn-opencl-smoke"
 $OutputReport = Join-Path $ReportDirectory "latest.txt"
 $RuntimePackager = Join-Path $ProjectRoot "scripts\package-mnn-opencl-runtime.sh"
@@ -34,6 +35,9 @@ foreach ($Name in $Artifacts) {
 }
 if (-not (Test-Path -LiteralPath $RuntimePackager -PathType Leaf)) {
     throw "Required runtime packager is missing: $RuntimePackager"
+}
+if (-not (Test-Path -LiteralPath $OpenClLibrary -PathType Leaf)) {
+    throw "The cached board OpenCL loader is missing: $OpenClLibrary. Run scripts\build-mnn-opencl-cross.ps1 once to refresh it."
 }
 
 function Convert-ToWslPath([string]$WindowsPath) {
@@ -80,7 +84,11 @@ $UploadFiles = @(
     @{ Local = (Join-Path $ArtifactDirectory "mnn-opencl-smoke"); Remote = "mnn-opencl-smoke" },
     @{ Local = (Join-Path $ArtifactDirectory "mnn-opencl-smoke.mnn"); Remote = "mnn-opencl-smoke.mnn" },
     @{ Local = (Join-Path $ArtifactDirectory "build-record.json"); Remote = "build-record.json" },
-    @{ Local = $RuntimeRecord; Remote = "runtime-record.json" }
+    @{ Local = $RuntimeRecord; Remote = "runtime-record.json" },
+    # MNN 3.0.0 only probes the unversioned Linux name.  The Debian board
+    # exposes libOpenCL.so.1, so upload the same verified board library under
+    # an isolated alias instead of creating a system-wide symlink.
+    @{ Local = $OpenClLibrary; Remote = "libOpenCL.so" }
 )
 foreach ($Name in $RuntimeNames) {
     $UploadFiles += @{ Local = (Join-Path $RuntimeDirectory $Name); Remote = "runtime/$Name" }
@@ -137,6 +145,7 @@ cd '$RemoteRoot'
 sha256sum --strict -c SHA256SUMS
 chmod 700 mnn-opencl-smoke
 chmod 755 runtime/ld-linux-aarch64.so.1
+test -s libOpenCL.so
 export MNN_OPENCL_BUFFER_CLOSED=0
 if [ -f ./libMNN_CL.so ]; then
     export LD_PRELOAD='$RemoteRoot/libMNN_CL.so'
