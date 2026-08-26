@@ -264,3 +264,60 @@ existing image Real-ESRGAN independently on every frame.
 The next model review must record license, source, temporal window, supported
 operators (especially warp/grid sampling), fixed-shape export, memory use and
 measured 2×/4× quality before any weight is downloaded to the board.
+
+## WSL video-export environment: incident review and permanent rules
+
+The isolated `photo-restore-videoexport` environment passed its complete
+bootstrap on 2026-08-26 with the following verified core versions:
+
+| Package | Verified version |
+|---|---|
+| PyTorch | 2.4.0+cu121 |
+| TorchVision | 0.19.0+cu121 |
+| NumPy | 1.26.4 |
+| ONNX | 1.16.1 |
+| ONNX Runtime | 1.18.1 |
+| MMCV Lite | 2.1.0 |
+| MMEngine | 0.10.7 |
+| MMagic | 1.2.0 |
+
+The repeated setup failures were caused by an incorrect dependency strategy,
+not by RK3588 or the downloaded model weights. Too many packages were first
+installed with `--no-deps`. That omitted both native Torch runtime wheels and
+ordinary Python transitive dependencies. The missing modules then appeared one
+at a time (`tomli`, `platformdirs`, `mmcv`, and `lazy_loader`). Repeatedly adding
+the module named by the latest traceback treated symptoms instead of resolving
+the dependency graph.
+
+The final repair uses these rules:
+
+1. isolate experimental video packages in `photo-restore-videoexport`; never
+   repair them inside the working RKNN 2.3.2 export environment or board venv;
+2. pin only ABI- and compatibility-sensitive packages such as Torch, NumPy,
+   ONNX, ONNX Runtime, MMCV, MMEngine and MMagic;
+3. let pip resolve normal dependencies for Torch, MMCV/MMEngine, SciPy,
+   scikit-image, Matplotlib and ONNX Runtime;
+4. use `--no-deps` only for MMagic because its broad application dependency set
+   is intentionally outside this fixed BasicVSR++ export path;
+5. after installation, import the complete required module set and assert all
+   core versions in one final gate;
+6. make reruns idempotent: detect the actual Conda environment executable and
+   avoid force-reinstalling already correct packages;
+7. distinguish a Python packaging failure from a model-operator failure.
+   `mmcv-lite` makes the configuration/model package importable, but it does not
+   prove that BasicVSR++ deformable alignment can export to ONNX or RKNN.
+
+For future environment failures, the required order is:
+
+1. preserve the complete traceback;
+2. inspect the failing distribution's declared dependency graph and run a
+   complete import probe for the intended execution path;
+3. classify missing items as a normal transitive dependency, an optional
+   application dependency, or a compiled/custom operator;
+4. update the full dependency group and final validation gate once;
+5. rerun the idempotent installer and require
+   `RESULT=PASS_VIDEO_EXPORT_ENV_READY` before model work continues.
+
+Do not upload anything to RK3588 merely because this WSL environment passes.
+The next independent gates are BasicVSR++ model construction, checkpoint
+loading, fixed-shape ONNX export, operator audit and ONNX numerical validation.
