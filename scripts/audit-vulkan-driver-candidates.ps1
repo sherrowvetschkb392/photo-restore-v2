@@ -53,9 +53,9 @@ $BuildRemovals = @($BuildSimulation | Where-Object { $_ -match '^Remv\s' })
 $MesaSimulation = @($Sections.MESA_VULKAN_SIMULATION)
 $MesaRemovals = @($MesaSimulation | Where-Object { $_ -match '^Remv\s' })
 $ProductionHealthy = @($Sections.PRODUCTION | Where-Object { $_ -eq 'api_active=active' }).Count -gt 0 -and @($Sections.PRODUCTION | Where-Object { $_ -eq 'tunnel_active=active' }).Count -gt 0
-$InstalledPackageLine = @($Sections.INSTALLED_MALI_PACKAGE | Where-Object { $_ -match '^package=' } | Select-Object -First 1)
+$InstalledPackageLine = [string](@($Sections.INSTALLED_MALI_PACKAGE | Where-Object { $_ -match '^package=' } | Select-Object -First 1)[0])
 $InstalledPackageName = if ($InstalledPackageLine) { $InstalledPackageLine -replace '^package=', '' } else { '' }
-$KernelDdkLine = @($Sections.GPU_KERNEL | Where-Object { $_ -match 'Kernel DDK version' } | Select-Object -Last 1)
+$KernelDdkLine = [string](@($Sections.GPU_KERNEL | Where-Object { $_ -match 'Kernel DDK version' } | Select-Object -Last 1)[0])
 $KernelDdkVersion = if ($KernelDdkLine -match '(?<version>g\d+p\d+)') { $Matches.version } else { $null }
 $UserDdkVersion = if ($InstalledPackageName -match '(?<version>g\d+p\d+)') { $Matches.version } else { $null }
 $DdkVersionMismatch = $null -ne $KernelDdkVersion -and $null -ne $UserDdkVersion -and $KernelDdkVersion -ne $UserDdkVersion
