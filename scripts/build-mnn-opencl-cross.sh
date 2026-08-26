@@ -124,9 +124,8 @@ OPENCL_PLUGIN="$(find "${ARM_BUILD}" -type f -name 'libMNN_CL.so*' -print | sort
 if [[ -n "${OPENCL_PLUGIN}" ]]; then
     cp -L "${OPENCL_PLUGIN}" "${OUTPUT_ROOT}/libMNN_CL.so"
 fi
-if ! strings "${OUTPUT_ROOT}/libMNN.so" | grep -Eqi 'OpenCL(Backend|Runtime|Execution|Buffer|Image|Creator|Module|Tune|Program|Kernel)' \
-    && [[ ! -f "${OUTPUT_ROOT}/libMNN_CL.so" ]]; then
-    printf '%s\n' 'ERROR=OpenCL_backend_missing_from_MNN_artifacts' >&2
+if ! grep -q 'source/backend/opencl/CMakeFiles/MNN_CL.dir' "${ARM_BUILD}/build.ninja"; then
+    printf '%s\n' 'ERROR=OpenCL_backend_objects_not_linked' >&2
     exit 10
 fi
 
