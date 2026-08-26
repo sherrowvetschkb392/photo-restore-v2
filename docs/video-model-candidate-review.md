@@ -176,3 +176,11 @@ work group, approximately 3.81 GiB of shared global memory and an available
 OpenCL compiler. This keeps a pre-trained MNN OpenCL interpolation backend in
 scope without replacing the operating system. A real kernel execution and
 framework smoke test are still required before selecting a RIFE-family model.
+
+The subsequent compute smoke test compiled a kernel on-device and executed 20
+runs over 1,048,576 float elements. It completed with zero mismatches and zero
+reported numerical error; average kernel wall time was approximately 1.84 ms
+per run. The next gate is therefore the MNN OpenCL framework itself rather than
+the Mali driver. `scripts/preflight-mnn-opencl.ps1` decides between an isolated
+native board build and an AArch64 cross-build without changing installed
+packages.
