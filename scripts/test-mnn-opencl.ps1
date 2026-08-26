@@ -37,7 +37,15 @@ $ManifestLines = foreach ($Name in @("libMNN.so", "mnn-opencl-smoke", "mnn-openc
     $Hash = (Get-FileHash -LiteralPath $LocalPath -Algorithm SHA256).Hash.ToLowerInvariant()
     "$Hash  $Name"
 }
-$ManifestLines | Set-Content -LiteralPath $ManifestPath -Encoding ascii
+# The manifest is uploaded to Linux.  Set-Content emits CRLF on Windows,
+# which makes sha256sum treat the trailing carriage return as part of each
+# filename.  Write an explicit LF-only ASCII file instead.
+$ManifestText = ($ManifestLines -join "`n") + "`n"
+[System.IO.File]::WriteAllText(
+    $ManifestPath,
+    $ManifestText,
+    [System.Text.UTF8Encoding]::new($false)
+)
 
 Write-Output "Checking production services before isolated MNN OpenCL inference..."
 $Safety = @(& ssh @SshOptions $SshHost "printf 'api='; systemctl is-active photo-restore-api.service; printf 'tunnel='; systemctl is-active cloudflared.service; printf 'workers='; pgrep -fc '/userdata/photo-restore-v2.*([r]estore_image.py|[r]ife|[m]nn-opencl-smoke)' || true" 2>&1)
