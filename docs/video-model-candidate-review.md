@@ -101,3 +101,25 @@ The isolated export setup is managed by
 `scripts/prepare-video-export.ps1`. Its default mode is a no-change plan;
 `-Install` only changes the named WSL Conda development environment. It never
 installs packages into the board venv and never uploads a model.
+
+### BasicVSR++ export decision (2026-08-26)
+
+The official checkpoint and SPyNet weights passed SHA-256 verification, and the
+checkpoint loaded successfully with 275 tensors and 7,322,934 parameters. The
+fixed 5-frame 64×64 → 256×256 contract is valid. Conversion is nevertheless
+blocked for RK3588:
+
+- MMagic BasicVSR++ depends on MMCV modulated deformable convolution;
+- `mmcv-lite` has no `mmcv._ext` compiled operator;
+- TorchVision's modulated `deform_conv2d` runs on CPU, but PyTorch ONNX export
+  rejects it as the unrecognized custom operator
+  `torchvision::deform_conv2d`;
+- wrapping either implementation as a custom ONNX operator would not make it a
+  supported RKNN operator and would change the deployment contract.
+
+BasicVSR++ therefore remains a PC-side quality reference/possible distillation
+teacher, not the RK3588 deployment model. The RKNN prototype moves to a compact
+fixed-window temporal-fusion student built only from standard Conv, activation,
+addition, reshape and PixelShuffle operations. Passing its architecture export
+probe is not a quality claim; training or teacher distillation is required
+before comparison with the video-enhancement fixtures.
