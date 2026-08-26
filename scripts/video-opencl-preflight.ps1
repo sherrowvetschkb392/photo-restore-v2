@@ -39,12 +39,23 @@ if ($Code -ne 0) {
     throw "Running the read-only OpenCL probe failed with exit code $Code`n$Text"
 }
 
+$BeginMarker = "---OPENCL_JSON_BEGIN---"
+$EndMarker = "---OPENCL_JSON_END---"
+$BeginIndex = $Text.IndexOf($BeginMarker, [StringComparison]::Ordinal)
+$EndIndex = $Text.IndexOf($EndMarker, [StringComparison]::Ordinal)
+if ($BeginIndex -lt 0 -or $EndIndex -le $BeginIndex) {
+    throw "The board did not return a delimited OpenCL report.`n$Text"
+}
+$JsonText = $Text.Substring(
+    $BeginIndex + $BeginMarker.Length,
+    $EndIndex - ($BeginIndex + $BeginMarker.Length)
+).Trim()
 try {
-    $Report = $Text | ConvertFrom-Json
+    $Report = $JsonText | ConvertFrom-Json
 } catch {
     throw "The board did not return a valid OpenCL JSON report.`n$Text"
 }
-$Text | Set-Content -LiteralPath $JsonReport -Encoding utf8
+$JsonText | Set-Content -LiteralPath $JsonReport -Encoding utf8
 
 $Platforms = @($Report.opencl.platforms)
 $Devices = @($Platforms | ForEach-Object { @($_.devices) })
@@ -63,4 +74,3 @@ Write-Output "Assessment: $($Report.assessment)"
 Write-Output "Report: $JsonReport"
 Write-Output "Board changed: False"
 Write-Output "RESULT=PASS_VIDEO_OPENCL_PREFLIGHT"
-

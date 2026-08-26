@@ -167,3 +167,12 @@ The OpenCL loader file alone is not evidence of a usable GPU runtime. Run
 `READY_FOR_OPENCL_INFERENCE_BACKEND_PROBE` permits an MNN/TNN OpenCL smoke
 test. If the gate is blocked, proceed with CAIN fixed-shape ONNX/RKNN operator
 inspection without changing the board runtime.
+
+The production board passed the direct OpenCL API gate on 2026-08-26. The
+existing Linux 5.10 system exposes one ARM OpenCL 3.0 platform and one
+`Mali-G610 r0p0` GPU device through the g13p0 userspace driver. The reported
+device has four compute units, a 1000 MHz maximum clock, a 1024-item maximum
+work group, approximately 3.81 GiB of shared global memory and an available
+OpenCL compiler. This keeps a pre-trained MNN OpenCL interpolation backend in
+scope without replacing the operating system. A real kernel execution and
+framework smoke test are still required before selecting a RIFE-family model.

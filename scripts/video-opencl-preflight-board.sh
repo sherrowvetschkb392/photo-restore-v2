@@ -5,7 +5,10 @@ set -eu
 
 export LC_ALL=C
 
-python3 - <<'PY'
+report_file="$(mktemp /tmp/photo-restore-opencl-report.XXXXXX.json)"
+trap 'rm -f "$report_file"' EXIT INT TERM
+
+python3 - "$report_file" <<'PY'
 import ctypes
 import ctypes.util
 import glob
@@ -13,6 +16,7 @@ import json
 import os
 import platform
 import subprocess
+import sys
 
 
 def read_text(path):
@@ -257,6 +261,11 @@ elif report["opencl"]["call_passed"] and device_count:
 else:
     report["assessment"] = "BLOCKED_OPENCL_RUNTIME"
 
-print(json.dumps(report, indent=2, sort_keys=False))
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump(report, handle, indent=2, sort_keys=False)
+    handle.write("\n")
 PY
 
+printf '%s\n' '---OPENCL_JSON_BEGIN---'
+cat "$report_file"
+printf '%s\n' '---OPENCL_JSON_END---'
