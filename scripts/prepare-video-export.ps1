@@ -64,11 +64,11 @@ if ! conda env list | awk '{print $1}' | grep -qx '$CondaEnvironment'; then
   conda create -y -n '$CondaEnvironment' python=3.10
 fi
 conda activate '$CondaEnvironment'
-python -m pip install --force-reinstall --no-deps 'setuptools==70.3.0' 'numpy==1.26.4' 'protobuf==4.25.4' 'onnx==1.16.1' 'onnxruntime==1.18.1' 'torch==2.4.0' 'triton==3.0.0'
-# Torch is installed without dependency resolution to protect the ABI pins;
-# provide its small pure-Python runtime dependency set explicitly.
-python -m pip install --no-deps 'typing_extensions==4.12.2' 'filelock==3.16.1' 'networkx==3.3' 'jinja2==3.1.4' 'fsspec==2024.9.0' 'sympy==1.13.2' 'MarkupSafe==2.1.5'
-python -m pip install --no-deps 'torchvision==0.19.0'
+python -m pip install --force-reinstall --no-deps 'setuptools==70.3.0' 'numpy==1.26.4' 'protobuf==4.25.4' 'onnx==1.16.1' 'onnxruntime==1.18.1'
+# Install Torch normally in this video-only environment so its CUDA runtime
+# wheels (libcudart, libcublas, etc.) are present. Torch does not require a
+# NumPy 2.x ABI; the pins are reasserted after all dependency resolution.
+python -m pip install --upgrade 'torch==2.4.0' 'torchvision==0.19.0'
 # MMagic's broad optional dependency set currently requests NumPy 2.x. Install
 # the packages without dependency resolution, then add only conservative
 # versions needed for the BasicVSR++ config/export path.
