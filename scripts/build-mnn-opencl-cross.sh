@@ -123,11 +123,14 @@ cat > "${OUTPUT_ROOT}/build-record.json" <<JSON
   "board_upload": false
 }
 JSON
-sha256sum \
-    "${OUTPUT_ROOT}/libMNN.so" \
-    "${OUTPUT_ROOT}/mnn-opencl-smoke" \
-    "${OUTPUT_ROOT}/mnn-opencl-smoke.mnn" \
-    > "${OUTPUT_ROOT}/SHA256SUMS"
+(
+    cd "${OUTPUT_ROOT}"
+    sha256sum \
+        libMNN.so \
+        mnn-opencl-smoke \
+        mnn-opencl-smoke.mnn \
+        > SHA256SUMS
+)
 
 printf 'MNN_REF=%s\n' "${MNN_REF}"
 printf 'MNN_COMMIT=%s\n' "${MNN_COMMIT}"

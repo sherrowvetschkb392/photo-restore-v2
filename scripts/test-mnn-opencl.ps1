@@ -23,7 +23,7 @@ if ($Cleanup) {
     exit 0
 }
 
-$Artifacts = @("libMNN.so", "mnn-opencl-smoke", "mnn-opencl-smoke.mnn", "SHA256SUMS", "build-record.json")
+$Artifacts = @("libMNN.so", "mnn-opencl-smoke", "mnn-opencl-smoke.mnn", "build-record.json")
 foreach ($Name in $Artifacts) {
     $Path = Join-Path $ArtifactDirectory $Name
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -31,6 +31,13 @@ foreach ($Name in $Artifacts) {
     }
 }
 New-Item -ItemType Directory -Force -Path $ReportDirectory | Out-Null
+$ManifestPath = Join-Path $ReportDirectory "SHA256SUMS-upload"
+$ManifestLines = foreach ($Name in @("libMNN.so", "mnn-opencl-smoke", "mnn-opencl-smoke.mnn")) {
+    $LocalPath = Join-Path $ArtifactDirectory $Name
+    $Hash = (Get-FileHash -LiteralPath $LocalPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$Hash  $Name"
+}
+$ManifestLines | Set-Content -LiteralPath $ManifestPath -Encoding ascii
 
 Write-Output "Checking production services before isolated MNN OpenCL inference..."
 $Safety = @(& ssh @SshOptions $SshHost "printf 'api='; systemctl is-active photo-restore-api.service; printf 'tunnel='; systemctl is-active cloudflared.service; printf 'workers='; pgrep -fc '/userdata/photo-restore-v2.*([r]estore_image.py|[r]ife|[m]nn-opencl-smoke)' || true" 2>&1)
@@ -50,12 +57,14 @@ foreach ($Name in $Artifacts) {
     & scp @SshOptions (Join-Path $ArtifactDirectory $Name) "${SshHost}:${RemoteRoot}/${Name}" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Uploading $Name failed with exit code $LASTEXITCODE" }
 }
+& scp @SshOptions $ManifestPath "${SshHost}:${RemoteRoot}/SHA256SUMS" | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Uploading the generated checksum manifest failed with exit code $LASTEXITCODE" }
 
 Write-Output "Running MNN with the Mali OpenCL backend..."
 $RemoteCommand = @"
 set -eu
 cd '$RemoteRoot'
-sha256sum -c SHA256SUMS
+sha256sum --strict -c SHA256SUMS
 chmod 700 mnn-opencl-smoke
 export LD_LIBRARY_PATH='$RemoteRoot':`$LD_LIBRARY_PATH
 export MNN_OPENCL_BUFFER_CLOSED=0
@@ -90,4 +99,3 @@ Write-Output $Text
 Write-Output "Report: $OutputReport"
 Write-Output "Board packages changed: False"
 Write-Output "RESULT=PASS_MNN_OPENCL_FRAMEWORK_SMOKE_DEPLOY"
-
