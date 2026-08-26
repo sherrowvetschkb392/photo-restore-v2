@@ -195,3 +195,7 @@ MP4，并用 ffprobe 验证尺寸、帧率、帧数、时长和音频。它不�
 该合同要求短时序输入输出 2× 或 4× 高分辨率帧，并同时检查空间误差与时间一致性；
 场景切换必须重置时序状态。它用于筛选 BasicVSR++、RealBasicVSR、RVRT 等候选，
 不会把图片 Real-ESRGAN 逐帧直接冒充视频修复。
+
+模型下载前的候选评审表见 `docs/video-model-candidate-review.md` 和
+`datasets/manifests/video-model-candidates.json`；当前只做来源、许可证和算子风险
+登记，不会自动下载权重或修改板端服务。

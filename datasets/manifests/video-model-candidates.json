@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "status": "pre_download_review",
+  "decision": {
+    "spatial_quality_primary": "RealBasicVSR",
+    "spatial_quality_backup": ["BasicVSR++", "RVRT"],
+    "interpolation_primary": "RIFE-small",
+    "interpolation_backup": ["IFRNet"],
+    "reason": "Prioritize real-world degraded-video quality while retaining a lighter RK3588 fallback; interpolation remains a separate composable stage.",
+    "download_authorized": false
+  },
+  "candidates": [
+    {
+      "name": "IFRNet",
+      "family": "interpolation",
+      "role": "interpolation_backup",
+      "source_url": "https://github.com/ltkong218/IFRNet",
+      "license_status": "verify_exact_commit_and_weights_before_download",
+      "temporal_window": 2,
+      "spatial_scale": 1,
+      "rknn_risks": ["flow_warp", "fixed_shape_export"]
+    },
+    {
+      "name": "RIFE-small",
+      "family": "interpolation",
+      "role": "interpolation_primary",
+      "source_url": "https://github.com/hzwer/ECCV2022-RIFE",
+      "license_status": "verify_exact_commit_and_weights_before_download",
+      "temporal_window": 2,
+      "spatial_scale": 1,
+      "rknn_risks": ["custom_warp", "repository_variant_drift"]
+    },
+    {
+      "name": "BasicVSR++",
+      "family": "video_super_resolution",
+      "role": "quality_backup",
+      "source_url": "https://github.com/open-mmlab/mmagic",
+      "license_status": "verify_exact_commit_and_weights_before_download",
+      "temporal_window": "model_defined",
+      "spatial_scale": "2_or_4",
+      "rknn_risks": ["deformable_alignment", "recurrent_state", "memory"]
+    },
+    {
+      "name": "RealBasicVSR",
+      "family": "video_super_resolution",
+      "role": "spatial_quality_primary",
+      "source_url": "https://github.com/open-mmlab/mmagic",
+      "license_status": "verify_exact_commit_and_weights_before_download",
+      "temporal_window": "model_defined",
+      "spatial_scale": "2_or_4",
+      "rknn_risks": ["recurrent_alignment", "degradation_pipeline", "memory"]
+    },
+    {
+      "name": "RVRT",
+      "family": "video_super_resolution",
+      "role": "deferred_reference",
+      "source_url": "https://github.com/JingyunLiang/RVRT",
+      "license_status": "verify_exact_commit_and_weights_before_download",
+      "temporal_window": "model_defined",
+      "spatial_scale": "2_or_4",
+      "rknn_risks": ["attention_memory", "dynamic_window", "operator_support"]
+    }
+  ]
+}
