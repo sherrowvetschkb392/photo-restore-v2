@@ -21,17 +21,18 @@ the repository's fixed-shape contracts before it can enter RKNN conversion.
 
 ### Current provisional decision
 
-For the first quality-oriented prototype, use **RealBasicVSR** as the spatial
-video-restoration primary and **RIFE-small** as the separate frame-rate primary.
-Keep **BasicVSR++** and **RVRT** as higher-risk quality backups, and **IFRNet**
-as the lighter interpolation fallback. This is a prioritization for testing,
-not a claim that either primary is already RKNN-compatible.
+For the first quality-oriented prototype, use **BasicVSR++ 4×** as the spatial
+video-super-resolution primary and **RIFE-small** as the separate frame-rate
+primary. Keep **RealBasicVSR** as an optional 1× real-world cleanup stage,
+**RVRT** as a higher-risk quality backup, and **IFRNet** as the lighter
+interpolation fallback. This is a product-quality prioritization, not a claim
+that BasicVSR++ is already RKNN-compatible.
 
-The reason is product fit: the main gap is degraded video clarity and
-resolution, so a real-world video-restoration model gets priority over a model
-that only synthesizes extra timestamps. RIFE remains separate because temporal
-interpolation and spatial restoration should be independently switchable and
-measurable.
+The reason is product fit: the main gap includes resolution, and the official
+BasicVSR++ checkpoint explicitly targets BI×4/BD×4 video super-resolution.
+RealBasicVSR is retained for real-world cleanup because its official model is
+1×. RIFE remains separate because temporal interpolation and spatial
+restoration should be independently switchable and measurable.
 
 | Candidate | Role | Why it is considered | Main RKNN risk | Current decision |
 |---|---|---|---|---|
@@ -86,3 +87,9 @@ must not be silently flattened in a way that changes model semantics.
 
 No candidate is approved for public video upload until the production safety
 milestones in `product-requirements-roadmap.md` are complete.
+
+The first BasicVSR++ artifact cache is intentionally local and ignored by Git.
+Its record contains the official URLs, byte counts and SHA-256 values for the
+4× checkpoint and SPyNet dependency. The cache must pass
+`tools/verify_video_model_artifacts.py` before export work begins. Weight files
+are not uploaded to RK3588 until ONNX export and operator review pass.

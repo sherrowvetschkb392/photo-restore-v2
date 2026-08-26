@@ -2,11 +2,11 @@
   "schema_version": 1,
   "status": "pre_download_review",
   "decision": {
-    "spatial_quality_primary": "RealBasicVSR",
-    "spatial_quality_backup": ["BasicVSR++", "RVRT"],
+    "spatial_quality_primary": "BasicVSR++",
+    "spatial_quality_backup": ["RealBasicVSR", "RVRT"],
     "interpolation_primary": "RIFE-small",
     "interpolation_backup": ["IFRNet"],
-    "reason": "Prioritize real-world degraded-video quality while retaining a lighter RK3588 fallback; interpolation remains a separate composable stage.",
+    "reason": "BasicVSR++ has an official 4x video-super-resolution checkpoint; RealBasicVSR remains an optional 1x real-world cleanup stage and interpolation stays separate.",
     "download_authorized": false
   },
   "candidates": [
@@ -33,7 +33,7 @@
     {
       "name": "BasicVSR++",
       "family": "video_super_resolution",
-      "role": "quality_backup",
+      "role": "spatial_quality_primary",
       "source_url": "https://github.com/open-mmlab/mmagic",
       "license_status": "verify_exact_commit_and_weights_before_download",
       "temporal_window": "model_defined",
@@ -43,7 +43,7 @@
     {
       "name": "RealBasicVSR",
       "family": "video_super_resolution",
-      "role": "spatial_quality_primary",
+      "role": "cleanup_optional",
       "source_url": "https://github.com/open-mmlab/mmagic",
       "license_status": "verify_exact_commit_and_weights_before_download",
       "temporal_window": "model_defined",

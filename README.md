@@ -215,3 +215,28 @@ python tools/validate_video_model_manifest.py datasets/manifests/video-model-can
 结果隔离在 `data\video-development\model-candidates\`，需要人工确认具体提交、许可证
 和权重来源后，才允许进入 ONNX/RKNN 评估。重复运行会复用已有记录；只有需要刷新
 公开元数据时才加 `-Force`。
+
+读取 RealBasicVSR 的配置目录和模型说明（仍不下载权重）：
+
+```powershell
+.\scripts\fetch-video-model-details.ps1 -Candidate RealBasicVSR
+```
+
+BasicVSR++ 4×官方权重下载计划（不下载）：
+
+```powershell
+.\scripts\download-video-model-artifacts.ps1 -Candidate "BasicVSR++"
+```
+
+确认计划后再实际下载到项目隔离缓存（仍不上传板子）：
+
+```powershell
+.\scripts\download-video-model-artifacts.ps1 -Candidate "BasicVSR++" -DownloadWeights
+```
+
+下载后验证文件完整性：
+
+```powershell
+python tools/verify_video_model_artifacts.py `
+  data/video-development/model-candidates/BasicVSR++/weights-record.json
+```
