@@ -9,7 +9,12 @@ $Command = @"
 set -euo pipefail
 source /home/ljd/miniconda3/etc/profile.d/conda.sh
 conda activate '$CondaEnvironment'
-python -m pip install --force-reinstall --no-deps 'setuptools==70.3.0' 'numpy==1.26.4' 'protobuf==4.25.4' 'onnx==1.16.1' 'torch==2.4.0'
+# Remove packages pulled in by the mistaken video install. They are not part
+# of the RKNN conversion environment and their dependency pins conflict with
+# the required NumPy/protobuf/Torch versions.
+python -m pip uninstall -y mmagic mmengine torchvision opencv-contrib-python opencv-python-headless opencv-python tensorboard tensorboard-data-server triton || true
+python -m pip install --force-reinstall --no-deps 'setuptools==70.3.0' 'numpy==1.26.4' 'protobuf==4.25.4' 'onnx==1.16.1' 'torch==2.4.0' 'triton==3.0.0'
+python -m pip install 'opencv-python-headless==4.10.0.84' 'scipy==1.13.1'
 python -m pip check
 python - <<'PY'
 import numpy, onnx, torch
