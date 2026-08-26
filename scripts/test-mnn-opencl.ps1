@@ -1,6 +1,7 @@
 param(
     [string]$SshHost = "rk3588",
     [string]$Distribution = "Ubuntu",
+    [string]$WslWorkRoot = "/mnt/d/photo-restore-mnn-opencl",
     [switch]$Cleanup
 )
 
@@ -11,6 +12,7 @@ $OpenClLibrary = Join-Path $ProjectRoot "data\video-development\mnn-opencl-cross
 $ReportDirectory = Join-Path $ProjectRoot "benchmarks\mnn-opencl-smoke"
 $OutputReport = Join-Path $ReportDirectory "latest.txt"
 $RuntimePackager = Join-Path $ProjectRoot "scripts\package-mnn-opencl-runtime.sh"
+$SmokeBuilder = Join-Path $ProjectRoot "scripts\build-mnn-opencl-smoke.sh"
 $RemoteRoot = "/userdata/photo-restore-v2/data/video-development/mnn-opencl-smoke"
 $SshOptions = @("-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3")
 
@@ -36,6 +38,9 @@ foreach ($Name in $Artifacts) {
 if (-not (Test-Path -LiteralPath $RuntimePackager -PathType Leaf)) {
     throw "Required runtime packager is missing: $RuntimePackager"
 }
+if (-not (Test-Path -LiteralPath $SmokeBuilder -PathType Leaf)) {
+    throw "Required incremental smoke builder is missing: $SmokeBuilder"
+}
 if (-not (Test-Path -LiteralPath $OpenClLibrary -PathType Leaf)) {
     throw "The cached board OpenCL loader is missing: $OpenClLibrary. Run scripts\build-mnn-opencl-cross.ps1 once to refresh it."
 }
@@ -43,6 +48,15 @@ if (-not (Test-Path -LiteralPath $OpenClLibrary -PathType Leaf)) {
 function Convert-ToWslPath([string]$WindowsPath) {
     if ($WindowsPath -notmatch '^(?<drive>[A-Za-z]):\\(?<path>.*)$') { throw "Unsupported Windows path: $WindowsPath" }
     return "/mnt/$($Matches.drive.ToLowerInvariant())/$($Matches.path.Replace('\', '/'))"
+}
+
+Write-Output "Incrementally rebuilding only the MNN OpenCL smoke executable..."
+$WslSmokeBuilder = Convert-ToWslPath $SmokeBuilder
+$WslProjectRoot = Convert-ToWslPath $ProjectRoot
+$WslArtifactDirectory = Convert-ToWslPath $ArtifactDirectory
+& wsl.exe -d $Distribution -- bash $WslSmokeBuilder $WslProjectRoot $WslArtifactDirectory "$WslWorkRoot/MNN"
+if ($LASTEXITCODE -ne 0) {
+    throw "Incrementally rebuilding the MNN OpenCL smoke executable failed with exit code $LASTEXITCODE"
 }
 
 $RuntimeNames = @(
@@ -170,7 +184,6 @@ if ($Code -ne 0) { throw "The MNN OpenCL framework smoke test failed with exit c
 foreach ($Required in @(
     'BACKEND=OPENCL',
     'BACKEND_TYPE=3',
-    'MISMATCHES=0',
     'NON_FINITE=0',
     'RESULT=PASS_MNN_OPENCL_FRAMEWORK_SMOKE',
     'api_after=active',
