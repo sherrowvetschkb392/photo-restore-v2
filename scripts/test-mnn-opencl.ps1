@@ -54,6 +54,11 @@ $RuntimeNames = @(
 )
 $RuntimeDirectory = Join-Path $ArtifactDirectory "runtime"
 $RuntimeRecord = Join-Path $ArtifactDirectory "runtime-record.json"
+$BuildRecordPath = Join-Path $ArtifactDirectory "build-record.json"
+$BuildRecord = Get-Content -Raw -LiteralPath $BuildRecordPath | ConvertFrom-Json
+if (-not $BuildRecord.opencl -or $BuildRecord.separate_backend) {
+    throw "The existing MNN artifact does not contain the required embedded OpenCL backend. Rebuild it with scripts\build-mnn-opencl-cross.ps1."
+}
 $RuntimeMissing = -not (Test-Path -LiteralPath $RuntimeRecord -PathType Leaf)
 foreach ($Name in $RuntimeNames) {
     if (-not (Test-Path -LiteralPath (Join-Path $RuntimeDirectory $Name) -PathType Leaf)) {
@@ -79,6 +84,10 @@ $UploadFiles = @(
 )
 foreach ($Name in $RuntimeNames) {
     $UploadFiles += @{ Local = (Join-Path $RuntimeDirectory $Name); Remote = "runtime/$Name" }
+}
+$OpenClPlugin = Join-Path $ArtifactDirectory "libMNN_CL.so"
+if (Test-Path -LiteralPath $OpenClPlugin -PathType Leaf) {
+    $UploadFiles += @{ Local = $OpenClPlugin; Remote = "libMNN_CL.so" }
 }
 foreach ($File in $UploadFiles) {
     if (-not (Test-Path -LiteralPath $File.Local -PathType Leaf)) {
@@ -129,6 +138,9 @@ sha256sum --strict -c SHA256SUMS
 chmod 700 mnn-opencl-smoke
 chmod 755 runtime/ld-linux-aarch64.so.1
 export MNN_OPENCL_BUFFER_CLOSED=0
+if [ -f ./libMNN_CL.so ]; then
+    export LD_PRELOAD='$RemoteRoot/libMNN_CL.so'
+fi
 ./runtime/ld-linux-aarch64.so.1 \
     --library-path '${RemoteRoot}/runtime:${RemoteRoot}:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu' \
     ./mnn-opencl-smoke ./mnn-opencl-smoke.mnn

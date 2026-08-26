@@ -59,17 +59,19 @@ MNN_COMMIT="$(git -C "${SOURCE_ROOT}" rev-parse HEAD)"
 
 HOST_BUILD="${WORK_ROOT}/build-host"
 ARM_BUILD="${WORK_ROOT}/build-arm64"
-rm -rf "${HOST_BUILD}" "${ARM_BUILD}"
-
-cmake -S "${SOURCE_ROOT}" -B "${HOST_BUILD}" -G Ninja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DMNN_BUILD_CONVERTER=ON \
-    -DMNN_BUILD_SHARED_LIBS=ON \
-    -DMNN_BUILD_TOOLS=ON \
-    -DMNN_OPENCL=OFF \
-    -DMNN_BUILD_TEST=OFF
-cmake --build "${HOST_BUILD}" --target MNNConvert -j "$(nproc)"
-MNN_CONVERT="$(find "${HOST_BUILD}" -type f -name MNNConvert -perm -111 -print -quit)"
+MNN_CONVERT="$(find "${HOST_BUILD}" -type f -name MNNConvert -perm -111 -print -quit 2>/dev/null || true)"
+if [[ -z "${MNN_CONVERT}" ]]; then
+    rm -rf "${HOST_BUILD}"
+    cmake -S "${SOURCE_ROOT}" -B "${HOST_BUILD}" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DMNN_BUILD_CONVERTER=ON \
+        -DMNN_BUILD_SHARED_LIBS=ON \
+        -DMNN_BUILD_TOOLS=ON \
+        -DMNN_OPENCL=OFF \
+        -DMNN_BUILD_TEST=OFF
+    cmake --build "${HOST_BUILD}" --target MNNConvert -j "$(nproc)"
+    MNN_CONVERT="$(find "${HOST_BUILD}" -type f -name MNNConvert -perm -111 -print -quit)"
+fi
 [[ -n "${MNN_CONVERT}" ]] || { printf '%s\n' 'ERROR=MNNConvert_not_found' >&2; exit 5; }
 
 OPENCL_INCLUDE="${WORK_ROOT}/opencl-include"
@@ -77,6 +79,7 @@ rm -rf "${OPENCL_INCLUDE}"
 mkdir -p "${OPENCL_INCLUDE}/CL"
 cp -a /usr/include/CL/. "${OPENCL_INCLUDE}/CL/"
 
+rm -rf "${ARM_BUILD}"
 cmake -S "${SOURCE_ROOT}" -B "${ARM_BUILD}" -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_SYSTEM_NAME=Linux \
@@ -87,6 +90,7 @@ cmake -S "${SOURCE_ROOT}" -B "${ARM_BUILD}" -G Ninja \
     -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
     -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=BOTH \
     -DMNN_OPENCL=ON \
+    -DMNN_SEP_BUILD=OFF \
     -DMNN_BUILD_SHARED_LIBS=ON \
     -DMNN_BUILD_CONVERTER=OFF \
     -DMNN_BUILD_TOOLS=OFF \
@@ -94,6 +98,15 @@ cmake -S "${SOURCE_ROOT}" -B "${ARM_BUILD}" -G Ninja \
     -DOpenCL_INCLUDE_DIR="${OPENCL_INCLUDE}" \
     -DOpenCL_LIBRARY="${OPENCL_LIBRARY}"
 cmake --build "${ARM_BUILD}" --target MNN -j "$(nproc)"
+
+grep -Eq '^MNN_OPENCL:BOOL=ON$' "${ARM_BUILD}/CMakeCache.txt" || {
+    printf '%s\n' 'ERROR=MNN_OPENCL_not_enabled_in_cmake_cache' >&2
+    exit 8
+}
+grep -Eq '^MNN_SEP_BUILD:BOOL=OFF$' "${ARM_BUILD}/CMakeCache.txt" || {
+    printf '%s\n' 'ERROR=MNN_SEP_BUILD_not_disabled_in_cmake_cache' >&2
+    exit 9
+}
 
 ONNX_MODEL="${OUTPUT_ROOT}/mnn-opencl-smoke.onnx"
 MNN_MODEL="${OUTPUT_ROOT}/mnn-opencl-smoke.mnn"
@@ -104,7 +117,18 @@ MNN_MODEL="${OUTPUT_ROOT}/mnn-opencl-smoke.mnn"
 
 MNN_LIBRARY="$(find "${ARM_BUILD}" -maxdepth 3 -type f -name 'libMNN.so*' -print | sort | tail -1)"
 [[ -n "${MNN_LIBRARY}" ]] || { printf '%s\n' 'ERROR=libMNN_not_found' >&2; exit 6; }
+rm -f "${OUTPUT_ROOT}/libMNN.so" "${OUTPUT_ROOT}/libMNN_CL.so"
 cp -L "${MNN_LIBRARY}" "${OUTPUT_ROOT}/libMNN.so"
+
+OPENCL_PLUGIN="$(find "${ARM_BUILD}" -type f -name 'libMNN_CL.so*' -print | sort | tail -1)"
+if [[ -n "${OPENCL_PLUGIN}" ]]; then
+    cp -L "${OPENCL_PLUGIN}" "${OUTPUT_ROOT}/libMNN_CL.so"
+fi
+if ! strings "${OUTPUT_ROOT}/libMNN.so" | grep -Eqi 'OpenCL(Backend|Runtime|Execution|Buffer|Image|Creator|Module|Tune|Program|Kernel)' \
+    && [[ ! -f "${OUTPUT_ROOT}/libMNN_CL.so" ]]; then
+    printf '%s\n' 'ERROR=OpenCL_backend_missing_from_MNN_artifacts' >&2
+    exit 10
+fi
 
 aarch64-linux-gnu-g++ -std=c++14 -O2 \
     -I"${SOURCE_ROOT}/include" \
@@ -122,6 +146,8 @@ cat > "${OUTPUT_ROOT}/build-record.json" <<JSON
   "mnn_commit": "${MNN_COMMIT}",
   "architecture": "aarch64",
   "opencl": true,
+  "separate_backend": false,
+  "opencl_plugin": $(if [[ -f "${OUTPUT_ROOT}/libMNN_CL.so" ]]; then printf 'true'; else printf 'false'; fi),
   "board_upload": false
 }
 JSON
@@ -134,6 +160,9 @@ JSON
         runtime-record.json \
         runtime/* \
         > SHA256SUMS
+    if [[ -f libMNN_CL.so ]]; then
+        sha256sum libMNN_CL.so >> SHA256SUMS
+    fi
 )
 
 printf 'MNN_REF=%s\n' "${MNN_REF}"

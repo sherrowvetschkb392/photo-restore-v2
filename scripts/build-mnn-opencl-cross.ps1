@@ -55,6 +55,10 @@ foreach ($Name in @("libMNN.so", "mnn-opencl-smoke", "mnn-opencl-smoke.mnn", "bu
     $Path = Join-Path $OutputDirectory $Name
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Expected cross-build artifact is missing: $Path" }
 }
+$BuildRecord = Get-Content -Raw -LiteralPath (Join-Path $OutputDirectory "build-record.json") | ConvertFrom-Json
+if (-not $BuildRecord.opencl -or $BuildRecord.separate_backend) {
+    throw "The MNN build record does not confirm an embedded OpenCL backend."
+}
 foreach ($Name in @("ld-linux-aarch64.so.1", "libc.so.6", "libm.so.6", "libmvec.so.1", "libstdc++.so.6", "libgcc_s.so.1", "libdl.so.2", "libpthread.so.0", "librt.so.1")) {
     $Path = Join-Path $OutputDirectory "runtime\$Name"
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Expected isolated ARM64 runtime artifact is missing: $Path" }
