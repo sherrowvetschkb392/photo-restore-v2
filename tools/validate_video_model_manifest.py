@@ -27,21 +27,29 @@ REQUIRED_CANDIDATE_KEYS = {
     "rknn_risks",
 }
 ALLOWED_FAMILIES = {"interpolation", "video_super_resolution"}
+# pre_download_review: nothing downloaded yet. Later statuses record which
+# models have been verified and deployed on the board.
+ALLOWED_STATUSES = {
+    "pre_download_review",
+    "cain_interpolation_implemented",
+    "video_enhancement_deployed",
+}
 
 
 def validate(manifest: dict[str, object]) -> list[str]:
     errors: list[str] = []
     if manifest.get("schema_version") != 1:
         errors.append("schema_version must be 1")
-    if manifest.get("status") != "pre_download_review":
-        errors.append("status must remain pre_download_review before downloads")
+    status = manifest.get("status")
+    if status not in ALLOWED_STATUSES:
+        errors.append(f"status must be one of {sorted(ALLOWED_STATUSES)}")
     decision = manifest.get("decision")
     if not isinstance(decision, dict):
         errors.append("decision must be an object")
         decision = {}
     missing = REQUIRED_DECISION_KEYS - set(decision)
     errors.extend(f"decision missing {key}" for key in sorted(missing))
-    if decision.get("download_authorized") is not False:
+    if status == "pre_download_review" and decision.get("download_authorized") is not False:
         errors.append("download_authorized must be false in the pre-download manifest")
     candidates = manifest.get("candidates")
     if not isinstance(candidates, list) or not candidates:
@@ -73,7 +81,9 @@ def validate(manifest: dict[str, object]) -> list[str]:
         if parsed is None or parsed.scheme != "https" or not parsed.netloc:
             errors.append(f"{prefix}.source_url must be an HTTPS URL")
         risks = candidate.get("rknn_risks")
-        if not isinstance(risks, list) or not risks:
+        # Candidates that already carry pinned RKNN hashes have passed the
+        # operator-risk review, so an empty risk list is legitimate for them.
+        if not isinstance(risks, list) or (not risks and "rknn_sha256" not in candidate):
             errors.append(f"{prefix}.rknn_risks must be a non-empty list")
     for key in ("spatial_quality_primary", "interpolation_primary"):
         if decision.get(key) not in names:
@@ -109,7 +119,7 @@ def main() -> int:
     print(f"Candidates: {len(manifest['candidates'])}")
     print(f"Spatial primary: {manifest['decision']['spatial_quality_primary']}")
     print(f"Interpolation primary: {manifest['decision']['interpolation_primary']}")
-    print("Downloads authorized: False")
+    print(f"Downloads authorized: {manifest['decision']['download_authorized']}")
     print("RESULT=PASS_VIDEO_MODEL_MANIFEST")
     return 0
 

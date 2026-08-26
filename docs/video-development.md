@@ -385,5 +385,55 @@ Verified board runs (all PASS): 640x360 30->60 fps 8 s with AAC (240->479
 frames, 234 s); 4 s scene-cut clip (1 cut detected and bypassed, 59 static
 pairs skipped); 500x280 25->50 fps tiled path (75->149 frames).
 
-Interpolation remains an offline CLI capability: it is not exposed through the
-public API until the P0 identity/quota/cancellation work lands.
+## SRVGG video super-resolution: implemented and verified (2026-08-27)
+
+Spatial enhancement uses the frame-wise SRVGGNetCompact from Real-ESRGAN
+General x4v3 (BSD-3, `realesr-general-x4v3.pth`, sha256 8dc7edb9...). Recurrent
+VSR candidates (BasicVSR++, RealBasicVSR) were rejected for this runtime: their
+deformable alignment and recurrent state operators have no NPU kernel in RKNN
+Toolkit 2.3.2, and their memory profile is unsafe next to the CAIN models.
+
+Export notes:
+
+- The checkpoint is `SRVGGNetCompact(num_feat=64, num_conv=32, upscale=4)`;
+  the architecture is inlined in the export script so the pinned RKNN
+  conversion environment needs no Real-ESRGAN dependency.
+- Fixed shape 256x256 -> 1024x1024, FP16. ONNX-vs-PyTorch max error 5e-6;
+  RKNN-sim-vs-ONNX mean error 4.2e-4; on-board 272 ms per tile, RSS ~297 MB
+  after load (matches the CAIN tile model, so both stay resident together).
+
+### Worker modes
+
+`apps/worker/interpolate_video.py --mode` now selects one of three pipelines:
+
+- `interpolate`: CAIN 2x frame interpolation (input up to 1920x1080);
+- `upscale`: SRVGG 4x super-resolution, frame rate unchanged (up to 960x540);
+- `restore`: SRVGG 4x -> LANCZOS downsample to 2x -> CAIN interpolation at the
+  2x resolution, yielding 2x spatial + doubled frame rate (up to 640x360).
+  Downsampling the 4x result to 2x keeps the SR detail gain while halving the
+  interpolation cost.
+
+Verified board runs (all PASS): upscale 122 frames 640x360 -> 2560x1440 at
+30 fps; restore 63 -> 125 frames 640x360 -> 1280x720 at 60 fps in 339 s. Scene
+cuts and static pairs follow the same policy as the interpolation-only path.
+
+## Public API integration (2026-08-27)
+
+API 0.6.0 exposes video through the same single-worker queue as images:
+
+- `POST /api/video-jobs` accepts `file` + `mode` (multipart); uploads are
+  limited to 300 MiB and 10 minutes, probed with ffprobe, and rejected above
+  per-mode resolution limits before entering the queue.
+- Job rows gained `job_type` / `video_mode` columns (automatic startup
+  migration); responses include a whitelisted live `progress` object read from
+  the worker's `progress.json` (phase, frames, elapsed seconds), which also
+  serves as the liveness signal for stall detection on long video jobs.
+- Input/output previews are single JPEG frames extracted with ffmpeg; the
+  output download is `video/mp4` with HTTP range support, and the web UI plays
+  it in a `<video controls>` panel.
+- Health reporting gained `video_ready` / `accepting_video_uploads` and
+  per-file video-model checks without affecting image upload readiness.
+
+The owner confirmed the board is a single-user appliance, so no
+application-level identity isolation was added; Cloudflare Access remains the
+edge gate.

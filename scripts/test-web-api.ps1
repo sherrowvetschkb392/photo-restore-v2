@@ -39,8 +39,8 @@ foreach ($Path in @($OutputPath, $ReportPath)) { if (Test-Path -LiteralPath $Pat
 Write-Output "Checking the deployed API version and safety limit..."
 $HealthText = Invoke-CaptureChecked { ssh @SshOptions $SshHost "curl --fail --silent --show-error http://127.0.0.1:8080/api/health" } "Checking the API health endpoint"
 $Health = $HealthText | ConvertFrom-Json
-if ($Health.status -ne "ok" -or $Health.version -ne "0.5.0") {
-    throw "Expected healthy API version 0.5.0, received status='$($Health.status)' version='$($Health.version)'"
+if ($Health.status -ne "ok" -or $Health.version -ne "0.6.0") {
+    throw "Expected healthy API version 0.6.0, received status='$($Health.status)' version='$($Health.version)'"
 }
 if ([int64]$Health.max_input_pixels -ne 2000000) {
     throw "Public input limit changed unexpectedly: $($Health.max_input_pixels)"

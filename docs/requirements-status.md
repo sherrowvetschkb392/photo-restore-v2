@@ -29,12 +29,12 @@ board NPU, and return a verified restored image without requiring cloud access.
 | User-facing local/public UI and API | Complete | FastAPI, SQLite queue, browser UI, systemd and Cloudflare Access |
 | Persistent job history | Complete for current appliance | SQLite index, input/output/report downloads and per-job deletion |
 | Automatic retention and storage quotas | Complete | Terminal jobs are retained for 7 days by default; a 4 GiB job-storage quota and 2 GiB free-space reserve evict oldest terminal jobs without deleting queued/running work |
-| Production health monitoring | Complete | API 0.5.0 reports worker/cleanup threads, job counts and stalls, upload readiness and storage; a read-only PowerShell audit checks systemd, Cloudflare, NPU, temperature and disk |
-| Per-user ownership, quotas and rate limits | Pending (P0) | Cloudflare Access protects the edge, but the application does not yet isolate job history by identity |
-| Database migration, backup and deployment rollback | Pending (P0) | Required before adding video jobs or broader public use |
-| Job progress and cancellation | Pending (P0) | Current image queue exposes state but not worker heartbeat/progress or cancellation |
+| Production health monitoring | Complete | API 0.6.0 reports worker/cleanup threads, job counts and stalls, upload readiness (image and video separately) and storage; a read-only PowerShell audit checks systemd, Cloudflare, NPU, temperature and disk |
+| Per-user ownership, quotas and rate limits | Declined (single-user appliance) | The owner confirmed the board is single-user; Cloudflare Access protects the edge and no application-level identity isolation is wanted |
+| Database migration, backup and deployment rollback | Partial | Schema migrations are applied automatically at API startup (video columns added in 0.6.0); backup/rollback remain open |
+| Job progress and cancellation | Partial | Video jobs expose live phase/frame progress through the API and web UI; image progress and job cancellation remain open |
 | Full photo restoration modes | Pending | Current production model provides general 4x enhancement; face, scratch, denoise/deblur and colorization remain separate research items |
-| Video frame interpolation | Offline CLI implemented | CAIN (MIT) fixed-shape RKNN models; board-verified 2x interpolation worker with scene-cut/static policy and audio preservation; see `docs/video-development.md`. Public API exposure waits for P0 identity/quota work |
+| Video enhancement (interpolation + super-resolution) | Complete | API 0.6.0 exposes `POST /api/video-jobs` and a web panel with three modes: interpolate (CAIN 2x fps, up to 1920x1080), upscale (SRVGG x4v3 4x, up to 960x540) and restore (2x + 60fps, up to 640x360); uploads limited to 300 MiB / 10 minutes, audio preserved, live progress, MP4 + JSON report downloads; see `docs/video-development.md` |
 
 ## Current image contract
 
@@ -65,15 +65,14 @@ board-side temporary job is removed after verified download unless
 
 1. Keep the public image limit at 2,000,000 pixels and do not repeat the 3 MP
    driver-risk test without an explicit diagnostic reason.
-2. Add schema migrations, verified backup/restore and atomic deployment rollback.
-3. Add trusted user identity, task ownership, per-user limits, rate limiting,
-   worker heartbeat and cancellation before introducing public video jobs.
-4. Run an isolated, read-only RK3588 video codec preflight, then evaluate fixed-
-   shape lightweight frame-interpolation models outside the public API.
-5. Expand actual photo-restoration modes and integrate video only through the
-   gates in `product-requirements-roadmap.md`.
+2. Add verified backup/restore and atomic deployment rollback.
+3. Add worker heartbeat for image jobs and job cancellation (video jobs already
+   expose live progress).
+4. Expand actual photo-restoration modes (face, scratch, denoise/deblur,
+   colorization) as separate research items.
 
-The current project is a working Access-protected public image appliance with a
-measured 2 MP safety limit, automatic storage retention and health monitoring.
-Application-level identity isolation, recovery/rollback, cancellation, full
-photo-restoration modes and video interpolation remain on the roadmap.
+The current project is a working Access-protected public image and video
+appliance with a measured 2 MP image safety limit, per-mode video resolution
+limits, automatic storage retention and health monitoring. Backup/rollback,
+image-job progress, cancellation and full photo-restoration modes remain on the
+roadmap.

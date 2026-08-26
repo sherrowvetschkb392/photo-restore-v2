@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>照片修复工作站</title>
-  <link rel="stylesheet" href="/static/app.css?v=0.5.0">
+  <link rel="stylesheet" href="/static/app.css?v=0.6.0">
 </head>
 <body>
   <main class="shell">
@@ -12,12 +12,13 @@
       <div>
         <p class="eyebrow">RK3588 · 本地 NPU</p>
         <h1>照片修复工作站</h1>
-        <p class="lede">上传 PNG 或 JPEG，使用 Real-ESRGAN 在本机完成 4 倍修复。</p>
+        <p class="lede">上传照片或老视频，使用本机 NPU 完成 4 倍修复、插帧与超分。</p>
       </div>
       <div id="health" class="health" aria-live="polite">正在连接服务…</div>
     </header>
 
     <section class="panel upload-panel">
+      <div class="section-head"><div><p class="eyebrow">图片</p><h2>照片修复</h2></div></div>
       <form id="upload-form">
         <label id="drop-zone" class="drop-zone" for="photo">
           <input id="photo" name="file" type="file" accept="image/png,image/jpeg" required>
@@ -28,6 +29,29 @@
         <button id="submit" type="submit">开始修复</button>
       </form>
       <p id="message" class="message" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="panel upload-panel">
+      <div class="section-head"><div><p class="eyebrow">视频</p><h2>视频增强</h2></div></div>
+      <form id="video-upload-form">
+        <label id="video-drop-zone" class="drop-zone" for="video">
+          <input id="video" name="file" type="file" accept="video/mp4,video/quicktime,video/x-matroska,video/x-msvideo" required>
+          <span class="drop-title">选择或拖入一段视频</span>
+          <span class="drop-note">MP4 / MOV / MKV / AVI · 最大 300 MiB · 最长 10 分钟</span>
+          <span id="video-file-name" class="file-name"></span>
+        </label>
+        <fieldset class="mode-picker">
+          <legend>处理模式</legend>
+          <label><input type="radio" name="video-mode" value="interpolate" checked>
+            <span class="mode-name">插帧 2×</span><span class="mode-note">补出中间帧，帧率翻倍 · 最高 1920×1080</span></label>
+          <label><input type="radio" name="video-mode" value="upscale">
+            <span class="mode-name">超分 4×</span><span class="mode-note">逐帧 4 倍放大，帧率不变 · 最高 960×540</span></label>
+          <label><input type="radio" name="video-mode" value="restore">
+            <span class="mode-name">修复 2×@60</span><span class="mode-note">超分到 2 倍再插帧到 60fps · 最高 640×360</span></label>
+        </fieldset>
+        <button id="video-submit" type="submit">开始处理</button>
+      </form>
+      <p id="video-message" class="message" role="status" aria-live="polite"></p>
     </section>
 
     <section id="viewer-panel" class="panel viewer-panel" hidden>
@@ -49,12 +73,24 @@
       <div class="compare-labels"><span>原图放大</span><span>AI 修复</span></div>
     </section>
 
+    <section id="video-viewer-panel" class="panel viewer-panel" hidden>
+      <div class="section-head">
+        <div><p class="eyebrow">视频预览</p><h2 id="video-viewer-title">处理结果</h2></div>
+        <div class="actions">
+          <a id="video-download-output" class="button secondary" href="#" download>下载视频</a>
+          <a id="video-download-report" class="button ghost" href="#" download>下载报告</a>
+        </div>
+      </div>
+      <video id="result-video" class="result-video" controls preload="metadata"></video>
+      <p id="video-result-meta" class="job-meta"></p>
+    </section>
+
     <section class="panel">
       <div class="section-head"><div><p class="eyebrow">任务记录</p><h2>最近任务</h2></div><button id="refresh" class="secondary" type="button">刷新</button></div>
       <div id="empty" class="empty">还没有任务。</div>
       <div id="jobs" class="jobs" aria-live="polite"></div>
     </section>
   </main>
-  <script src="/static/app.js?v=0.5.0" defer></script>
+  <script src="/static/app.js?v=0.6.0" defer></script>
 </body>
 </html>

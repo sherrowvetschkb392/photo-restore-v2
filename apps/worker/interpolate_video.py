@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""Offline 2x frame-interpolation worker for RK3588 (CAIN / RKNN NPU).
+"""Offline video pipeline worker for RK3588 (CAIN interpolation + SRVGG SR).
 
-Reads a CFR (or CFR-conformable) video, doubles its frame rate with a fixed
--shape CAIN RKNN model, preserves the audio track and verifies the result.
+Modes:
+- interpolate: 2x frame rate with CAIN on the NPU, original resolution;
+- upscale: 4x spatial super-resolution with SRVGG (RealESRGAN General x4v3),
+  original frame rate;
+- restore: upscale x4, downscale to 2x (oversampled quality), then 2x
+  interpolation at the 2x resolution. Input is capped to 640x360 so the
+  interpolation stage can use the measured full-frame 720p model.
 
-Design rules (see docs/video-development.md):
-- full-frame fixed-shape models for exact 640x360 and 1280x720 inputs;
-- 256x256 tiled inference with 32 px linear-blend overlap for other sizes;
-- scene cuts bypass the model (hold previous frame);
-- near-static pairs bypass the model (copy previous frame);
-- output frame count is 2N-1 at 2x frame rate, duration matches the input;
+Shared rules (see docs/video-development.md):
+- exact 640x360 / 1280x720 interpolation inputs use full-frame CAIN models;
+  other sizes use 256x256 tiles with 32 px linear-blend overlap;
+- SRVGG contains no global-statistics ops, so tiled 256x256 -> 1024x1024 with
+  24 px linear-blend overlap is exact apart from border context;
+- scene cuts bypass interpolation (hold previous frame);
+- near-static pairs bypass interpolation (copy previous frame);
+- muxing trims both streams to the exact video length (never "-shortest");
 - writes progress.json during the run and an atomic report.json at the end;
-- never touches the photo API storage or production paths.
+- never touches the photo API storage or other production paths.
 """
 
 from __future__ import annotations
@@ -24,7 +31,6 @@ import platform
 import shutil
 import signal
 import subprocess
-import sys
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -35,15 +41,22 @@ from typing import Any
 import numpy as np
 
 TILE = 256
-TILE_OVERLAP = 32
-TILE_STRIDE = TILE - TILE_OVERLAP
+INTERP_OVERLAP = 32
+SR_OVERLAP = 24
+SR_SCALE = 4
 SCENE_CUT_THRESHOLD = 0.18
 STATIC_THRESHOLD = 0.002
-SUPPORTED_FULLFRAME = {(360, 640): "cain-interp-1x3x360x640-fp16.rknn",
-                       (720, 1280): "cain-interp-1x3x720x1280-fp16.rknn"}
-TILE_MODEL = "cain-interp-1x3x256x256-fp16.rknn"
-MAX_WIDTH = 1920
-MAX_HEIGHT = 1080
+INTERP_FULLFRAME = {(360, 640): "cain-interp-1x3x360x640-fp16.rknn",
+                    (720, 1280): "cain-interp-1x3x720x1280-fp16.rknn"}
+INTERP_TILE_MODEL = "cain-interp-1x3x256x256-fp16.rknn"
+SR_TILE_MODEL = "srvgg-general-x4v3-1x3x256x256-fp16.rknn"
+SR_TILE_OUT = TILE * SR_SCALE
+MAX_INTERP_WIDTH = 1920
+MAX_INTERP_HEIGHT = 1080
+# upscale: 4x output must stay inside the measured H.264 encoder range
+MAX_UPSCALE_INPUT = (540, 960)   # -> 2160x3840 output
+# restore: interpolation runs on the 2x image; keep it at/below 1280x720
+MAX_RESTORE_INPUT = (360, 640)   # -> 720x1280 interpolation stage
 
 
 def utc_now() -> str:
@@ -94,8 +107,6 @@ def probe_input(path: Path) -> dict[str, Any]:
         raise ValueError(f"expected exactly one video stream, found {len(video)}")
     v = video[0]
     width, height = int(v["width"]), int(v["height"])
-    if width > MAX_WIDTH or height > MAX_HEIGHT:
-        raise ValueError(f"input {width}x{height} exceeds {MAX_WIDTH}x{MAX_HEIGHT} limit")
     avg = parse_rate(v.get("avg_frame_rate"))
     real = parse_rate(v.get("r_frame_rate"))
     fps = avg or real
@@ -112,8 +123,8 @@ def probe_input(path: Path) -> dict[str, Any]:
     }
 
 
-class CainModel:
-    """Lazy RKNNLite wrapper around one fixed-shape CAIN model."""
+class RknnModel:
+    """Lazy RKNNLite wrapper around one fixed-shape model."""
 
     def __init__(self, model_dir: Path, name: str):
         from rknnlite.api import RKNNLite  # deferred: importable without NPU
@@ -125,73 +136,114 @@ class CainModel:
         self.name = name
         self.inferences = 0
 
-    def infer(self, frame0: np.ndarray, frame1: np.ndarray) -> np.ndarray:
-        out = self._rknn.inference(inputs=[frame0, frame1],
-                                   data_format=["nchw", "nchw"])[0]
+    def infer_nchw(self, *inputs: np.ndarray) -> list[np.ndarray]:
+        out = self._rknn.inference(inputs=list(inputs),
+                                   data_format=["nchw"] * len(inputs))
         self.inferences += 1
-        return np.clip(out[0].transpose(1, 2, 0), 0.0, 1.0)
+        return out
 
     def close(self) -> None:
         self._rknn.release()
 
 
-class Interpolator:
-    def __init__(self, model_dir: Path, width: int, height: int):
-        self.model_dir = model_dir
-        self.width = width
-        self.height = height
-        self.fullframe_name = SUPPORTED_FULLFRAME.get((height, width))
-        self._models: dict[str, CainModel] = {}
-        self._blend = self._build_blend_mask() if not self.fullframe_name else None
+def blend_mask(size: int, overlap: int) -> np.ndarray:
+    """1xSIZExSIZE linear ramp mask that sums to 1 across tile overlaps."""
+    w = np.ones(size, dtype=np.float32)
+    ramp = np.linspace(0.0, 1.0, overlap + 2, dtype=np.float32)[1:-1]
+    w[:overlap] = np.minimum(w[:overlap], ramp)
+    w[-overlap:] = np.minimum(w[-overlap:], ramp[::-1])
+    return (w[:, None] * w[None, :])[None, :, :]
 
-    def _load(self, name: str) -> CainModel:
+
+def tile_origins(length: int, tile: int, overlap: int) -> list[int]:
+    stride = tile - overlap
+    origins = list(range(0, max(length - tile, 0) + 1, stride))
+    if not origins or origins[-1] != length - tile:
+        origins.append(max(length - tile, 0))
+    return origins
+
+
+def run_tiled(model: RknnModel, inputs: list[np.ndarray], out_hw: tuple[int, int],
+              tile: int, overlap: int, scale: int) -> np.ndarray:
+    """Generic fixed-shape tiled inference with linear-blend overlap.
+
+    inputs: list of float32 NCHW tiles-sized frames cropped from the same
+    reflect-padded canvas; returns the blended HWC float32 output in [0,1].
+    The caller pads/crops. inputs are full frames (1,C,H,W), not tiles.
+    """
+    _, _, hp, wp = inputs[0].shape
+    oh, ow = hp * scale, wp * scale
+    acc = np.zeros((oh, ow, 3), dtype=np.float32)
+    wsum = np.zeros((oh, ow, 1), dtype=np.float32)
+    mask = blend_mask(tile * scale, overlap * scale).transpose(1, 2, 0)
+    for y in tile_origins(hp, tile, overlap):
+        for x in tile_origins(wp, tile, overlap):
+            tiles = [f[:, :, y:y + tile, x:x + tile].astype(np.float32)
+                     for f in inputs]
+            out = model.infer_nchw(*tiles)[0][0].transpose(1, 2, 0)
+            acc[y * scale:y * scale + tile * scale,
+                x * scale:x * scale + tile * scale] += out * mask
+            wsum[y * scale:y * scale + tile * scale,
+                 x * scale:x * scale + tile * scale] += mask
+    return np.clip(acc / np.maximum(wsum, 1e-6), 0.0, 1.0)[:oh, :ow]
+
+
+def pad_reflect(frame: np.ndarray, tile: int, overlap: int) -> np.ndarray:
+    """Pad an HWC uint8 frame so width/height are covered by the tile grid."""
+    h, w = frame.shape[:2]
+    stride = tile - overlap
+    pad_h = (stride - h % stride) % stride + overlap
+    pad_w = (stride - w % stride) % stride + overlap
+    if h < tile:
+        pad_h = max(pad_h, tile - h)
+    if w < tile:
+        pad_w = max(pad_w, tile - w)
+    return np.pad(frame, ((0, pad_h), (0, pad_w), (0, 0)), mode="reflect")
+
+
+class Pipeline:
+    def __init__(self, model_dir: Path, width: int, height: int, mode: str):
+        self.model_dir = model_dir
+        self.mode = mode
+        self._models: dict[str, RknnModel] = {}
+        # interpolation geometry operates on the (possibly upscaled) frames
+        interp_scale = 2 if mode == "restore" else 1
+        self.iw, self.ih = width * interp_scale, height * interp_scale
+        self.interp_fullframe = INTERP_FULLFRAME.get((self.ih, self.iw))
+
+    def _load(self, name: str) -> RknnModel:
         if name not in self._models:
-            self._models[name] = CainModel(self.model_dir, name)
+            self._models[name] = RknnModel(self.model_dir, name)
         return self._models[name]
 
-    def _build_blend_mask(self) -> np.ndarray:
-        w = np.ones(TILE, dtype=np.float32)
-        ramp = np.linspace(0.0, 1.0, TILE_OVERLAP + 2, dtype=np.float32)[1:-1]
-        w[:TILE_OVERLAP] = np.minimum(w[:TILE_OVERLAP], ramp)
-        w[-TILE_OVERLAP:] = np.minimum(w[-TILE_OVERLAP:], ramp[::-1])
-        return (w[:, None] * w[None, :])[None, :, :]  # 1x256x256
+    # ---- spatial SR -----------------------------------------------------
+    def upscale_frame(self, frame: np.ndarray) -> np.ndarray:
+        """uint8 HWC -> uint8 HWC at 4x resolution."""
+        padded = pad_reflect(frame, TILE, SR_OVERLAP)
+        x = padded.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+        model = self._load(SR_TILE_MODEL)
+        out = run_tiled(model, [x], (0, 0), TILE, SR_OVERLAP, SR_SCALE)
+        h, w = frame.shape[:2]
+        hr = np.clip(np.rint(out * 255.0), 0, 255).astype(np.uint8)
+        return hr[:h * SR_SCALE, :w * SR_SCALE]
 
-    def _tile_origins(self, length: int) -> list[int]:
-        origins = list(range(0, max(length - TILE, 0) + 1, TILE_STRIDE))
-        if not origins or origins[-1] != length - TILE:
-            origins.append(max(length - TILE, 0))
-        return origins
-
+    # ---- temporal interpolation ------------------------------------------
     def midpoint(self, frame0: np.ndarray, frame1: np.ndarray) -> np.ndarray:
-        """frame0/frame1: uint8 HWC RGB. Returns float32 HWC in [0,1]."""
-        if self.fullframe_name:
-            model = self._load(self.fullframe_name)
+        """uint8 HWC pair at the interpolation geometry -> uint8 HWC mid."""
+        if self.interp_fullframe:
+            model = self._load(self.interp_fullframe)
             f0 = frame0.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
             f1 = frame1.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
-            return model.infer(f0, f1)
-        return self._midpoint_tiled(frame0, frame1)
-
-    def _midpoint_tiled(self, frame0: np.ndarray, frame1: np.ndarray) -> np.ndarray:
-        h, w = self.height, self.width
-        pad_h = (TILE_STRIDE - h % TILE_STRIDE) % TILE_STRIDE + TILE_OVERLAP
-        pad_w = (TILE_STRIDE - w % TILE_STRIDE) % TILE_STRIDE + TILE_OVERLAP
-        ph = max(pad_h, TILE - h) if h < TILE else pad_h
-        pw = max(pad_w, TILE - w) if w < TILE else pad_w
-        f0 = np.pad(frame0, ((0, ph), (0, pw), (0, 0)), mode="reflect")
-        f1 = np.pad(frame1, ((0, ph), (0, pw), (0, 0)), mode="reflect")
-        hp, wp = f0.shape[:2]
-        acc = np.zeros((hp, wp, 3), dtype=np.float32)
-        wsum = np.zeros((hp, wp, 1), dtype=np.float32)
-        model = self._load(TILE_MODEL)
-        for y in self._tile_origins(hp):
-            for x in self._tile_origins(wp):
-                t0 = f0[y:y + TILE, x:x + TILE].transpose(2, 0, 1)[None] / 255.0
-                t1 = f1[y:y + TILE, x:x + TILE].transpose(2, 0, 1)[None] / 255.0
-                out = model.infer(t0.astype(np.float32), t1.astype(np.float32))
-                weight = self._blend.transpose(1, 2, 0)
-                acc[y:y + TILE, x:x + TILE] += out * weight
-                wsum[y:y + TILE, x:x + TILE] += weight
-        return (acc / np.maximum(wsum, 1e-6))[:h, :w]
+            out = np.clip(model.infer_nchw(f0, f1)[0][0].transpose(1, 2, 0), 0, 1)
+            return np.clip(np.rint(out * 255.0), 0, 255).astype(np.uint8)
+        p0 = pad_reflect(frame0, TILE, INTERP_OVERLAP)
+        p1 = pad_reflect(frame1, TILE, INTERP_OVERLAP)
+        f0 = p0.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+        f1 = p1.transpose(2, 0, 1)[None].astype(np.float32) / 255.0
+        model = self._load(INTERP_TILE_MODEL)
+        out = run_tiled(model, [f0, f1], (0, 0), TILE, INTERP_OVERLAP, 1)
+        h, w = frame0.shape[:2]
+        return np.clip(np.rint(out[:h, :w] * 255.0), 0, 255).astype(np.uint8)
 
     def close(self) -> None:
         for model in self._models.values():
@@ -202,6 +254,20 @@ class Interpolator:
     def inference_count(self) -> int:
         return sum(m.inferences for m in self._models.values())
 
+    @property
+    def used_models(self) -> list[str]:
+        return sorted(self._models)
+
+
+def downscale_half(frame: np.ndarray) -> np.ndarray:
+    """High-quality 2x downscale of an HWC uint8 frame (LANCZOS)."""
+    from PIL import Image
+    h, w = frame.shape[:2]
+    image = Image.fromarray(frame)
+    return np.asarray(
+        image.resize((w // 2, h // 2), Image.Resampling.LANCZOS),
+        dtype=np.uint8)
+
 
 def luma_sample(frame: np.ndarray) -> np.ndarray:
     small = frame[::8, ::8].astype(np.float32) / 255.0
@@ -209,8 +275,7 @@ def luma_sample(frame: np.ndarray) -> np.ndarray:
             + 0.114 * small[..., 2])
 
 
-def start_decoder(input_path: Path, fps: float, width: int, height: int,
-                  log: Path) -> subprocess.Popen:
+def start_decoder(input_path: Path, fps: float, log: Path) -> subprocess.Popen:
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error",
         "-i", str(input_path),
@@ -218,9 +283,8 @@ def start_decoder(input_path: Path, fps: float, width: int, height: int,
         "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1",
     ]
     log_handle = log.open("wb")
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log_handle,
+    return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log_handle,
                             env={**os.environ, "LC_ALL": "C", "LANG": "C"})
-    return proc
 
 
 def start_encoder(output_h264: Path, fps_out: float, width: int, height: int,
@@ -229,7 +293,7 @@ def start_encoder(output_h264: Path, fps_out: float, width: int, height: int,
     command = [
         "gst-launch-1.0", "-q", "-e",
         "fdsrc", "fd=0", "!",
-        f"rawvideoparse", f"format=rgb", f"width={width}", f"height={height}",
+        "rawvideoparse", "format=rgb", f"width={width}", f"height={height}",
         f"framerate={rate.numerator}/{rate.denominator}", "!",
         "videoconvert", "!",
         "video/x-raw,format=NV12", "!",
@@ -239,17 +303,15 @@ def start_encoder(output_h264: Path, fps_out: float, width: int, height: int,
         "filesink", f"location={output_h264}",
     ]
     log_handle = log.open("wb")
-    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stderr=log_handle,
+    return subprocess.Popen(command, stdin=subprocess.PIPE, stderr=log_handle,
                             env={**os.environ, "LC_ALL": "C", "LANG": "C",
                                  "GST_REGISTRY_UPDATE": "no"})
-    return proc
 
 
 def mux_audio(elementary: Path, input_path: Path, audio_codec: str | None,
               output: Path, log: Path, video_seconds: float) -> None:
-    # Trim both streams to the exact interpolated video length. A plain
-    # "-shortest" would let a slightly shorter audio track silently drop
-    # trailing video frames.
+    # Trim both streams to the exact video length. A plain "-shortest" would
+    # let a slightly shorter audio track silently drop trailing video frames.
     command = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", str(elementary), "-i", str(input_path),
@@ -262,7 +324,7 @@ def mux_audio(elementary: Path, input_path: Path, audio_codec: str | None,
     command += ["-c:v", "copy", "-t", f"{video_seconds:.3f}",
                 "-movflags", "+faststart", str(output)]
     completed = subprocess.run(command, stdout=log.open("wb"),
-                               stderr=subprocess.STDOUT, timeout=300, check=False,
+                               stderr=subprocess.STDOUT, timeout=600, check=False,
                                env={**os.environ, "LC_ALL": "C", "LANG": "C"})
     if completed.returncode != 0:
         raise RuntimeError(f"ffmpeg mux failed; see {log.name}")
@@ -282,6 +344,8 @@ def main() -> int:
     parser.add_argument("--model-dir", required=True, type=Path)
     parser.add_argument("--work-dir", required=True, type=Path)
     parser.add_argument("--report", required=True, type=Path)
+    parser.add_argument("--mode", choices=["interpolate", "upscale", "restore"],
+                        default="interpolate")
     parser.add_argument("--max-duration-seconds", type=float, default=600.0)
     parser.add_argument("--scene-cut-threshold", type=float, default=SCENE_CUT_THRESHOLD)
     parser.add_argument("--static-threshold", type=float, default=STATIC_THRESHOLD)
@@ -304,7 +368,7 @@ def main() -> int:
 
     progress_path = work_dir / "progress.json"
     started = time.monotonic()
-    write_progress(progress_path, phase="probe", result="RUNNING")
+    write_progress(progress_path, phase="probe", result="RUNNING", mode=args.mode)
 
     info = probe_input(input_path)
     if info["duration_seconds"] > args.max_duration_seconds:
@@ -312,53 +376,90 @@ def main() -> int:
             f"input duration {info['duration_seconds']:.1f}s exceeds limit "
             f"{args.max_duration_seconds:.1f}s")
     width, height, fps = info["width"], info["height"], info["fps"]
-    fps_out = fps * 2.0
-    bps = int(width * height * fps_out * args.bitrate_factor)
-    mode = "fullframe" if (height, width) in SUPPORTED_FULLFRAME else "tiled-256"
 
-    elementary = work_dir / "video-2x.h264"
-    decoder = start_decoder(input_path, fps, width, height,
-                            work_dir / "decode.log")
-    encoder = start_encoder(elementary, fps_out, width, height, bps,
+    if args.mode == "interpolate":
+        if width > MAX_INTERP_WIDTH or height > MAX_INTERP_HEIGHT:
+            raise SystemExit(f"input {width}x{height} exceeds the interpolation limit")
+        out_w, out_h, fps_out = width, height, fps * 2.0
+    elif args.mode == "upscale":
+        if not (height <= MAX_UPSCALE_INPUT[0] and width <= MAX_UPSCALE_INPUT[1]):
+            raise SystemExit(
+                f"input {width}x{height} exceeds the upscale limit "
+                f"{MAX_UPSCALE_INPUT[1]}x{MAX_UPSCALE_INPUT[0]}")
+        out_w, out_h, fps_out = width * SR_SCALE, height * SR_SCALE, fps
+    else:  # restore
+        if not (height <= MAX_RESTORE_INPUT[0] and width <= MAX_RESTORE_INPUT[1]):
+            raise SystemExit(
+                f"input {width}x{height} exceeds the restore limit "
+                f"{MAX_RESTORE_INPUT[1]}x{MAX_RESTORE_INPUT[0]}")
+        out_w, out_h, fps_out = width * 2, height * 2, fps * 2.0
+
+    bps = int(out_w * out_h * fps_out * args.bitrate_factor)
+    pipeline = Pipeline(args.model_dir.resolve(), width, height, args.mode)
+    interp_geometry = "fullframe" if pipeline.interp_fullframe else "tiled-256"
+    plan = {
+        "mode": args.mode,
+        "output": f"{out_w}x{out_h}@{fps_out:g}",
+        "interpolation_geometry": interp_geometry if args.mode != "upscale" else None,
+    }
+
+    elementary = work_dir / "video-out.h264"
+    decoder = start_decoder(input_path, fps, work_dir / "decode.log")
+    encoder = start_encoder(elementary, fps_out, out_w, out_h, bps,
                             work_dir / "encode.log")
-    interpolator = Interpolator(args.model_dir.resolve(), width, height)
 
-    frame_bytes = width * height * 3
+    in_bytes = width * height * 3
+    out_bytes = out_w * out_h * 3
     counts = {"input_frames": 0, "output_frames": 0, "model_mids": 0,
-              "scene_cuts": 0, "static_pairs": 0}
+              "sr_frames": 0, "scene_cuts": 0, "static_pairs": 0}
 
-    def emit(buf: bytes) -> None:
-        encoder.stdin.write(buf)
+    def emit(frame: np.ndarray) -> None:
+        encoder.stdin.write(frame.tobytes())
         counts["output_frames"] += 1
+
+    def enhance(frame: np.ndarray) -> np.ndarray:
+        """Per-frame spatial stage: identity, 4x SR, or 4x SR + 2x downscale."""
+        if args.mode == "interpolate":
+            return frame
+        hr = pipeline.upscale_frame(frame)
+        counts["sr_frames"] += 1
+        if args.mode == "upscale":
+            return hr
+        return downscale_half(hr)
 
     previous: np.ndarray | None = None
     previous_luma: np.ndarray | None = None
     interrupted = False
 
-    def handle_signal(signum, frame):
+    def handle_signal(signum, _frame):
         nonlocal interrupted
         interrupted = True
 
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
-    write_progress(progress_path, phase="interpolate", result="RUNNING",
-                   width=width, height=height, fps_in=fps, fps_out=fps_out,
-                   mode=mode)
+    write_progress(progress_path, phase="process", result="RUNNING",
+                   width=width, height=height, fps_in=fps, plan=plan)
+    temporal = args.mode != "upscale"
     while True:
         if interrupted:
             write_progress(progress_path, phase="aborted", result="INTERRUPTED",
                            **counts)
             raise SystemExit("interrupted by signal")
-        raw = decoder.stdout.read(frame_bytes)
-        if len(raw) < frame_bytes:
+        raw = decoder.stdout.read(in_bytes)
+        if len(raw) < in_bytes:
             break
-        current = np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 3)
+        current_in = np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 3)
         counts["input_frames"] += 1
+        current = enhance(current_in) if args.mode != "interpolate" else current_in.copy()
         if previous is None:
-            emit(raw)
-            previous = current.copy()
+            emit(current)
+            previous = current
             previous_luma = luma_sample(current)
+            continue
+        if not temporal:
+            emit(current)
+            previous = current
             continue
         current_luma = luma_sample(current)
         diff = float(np.abs(current_luma - previous_luma).mean())
@@ -369,25 +470,24 @@ def main() -> int:
             mid = previous
             counts["static_pairs"] += 1
         else:
-            mid_f = interpolator.midpoint(previous, current)
-            mid = np.clip(np.rint(mid_f * 255.0), 0, 255).astype(np.uint8)
+            mid = pipeline.midpoint(previous, current)
             counts["model_mids"] += 1
-        emit(mid.tobytes())
-        emit(raw)
-        previous = current.copy()
+        emit(mid)
+        emit(current)
+        previous = current
         previous_luma = current_luma
-        if counts["input_frames"] % 25 == 0:
-            write_progress(progress_path, phase="interpolate", result="RUNNING",
+        if counts["input_frames"] % 10 == 0:
+            write_progress(progress_path, phase="process", result="RUNNING",
                            elapsed_seconds=round(time.monotonic() - started, 1),
-                           **counts)
+                           plan=plan, **counts)
 
     decoder.stdout.close()
     decoder.wait(timeout=60)
     encoder.stdin.close()
-    if encoder.wait(timeout=300) != 0:
+    if encoder.wait(timeout=600) != 0:
         raise RuntimeError("GStreamer encoder failed; see encode.log")
-    interpolator.close()
-    inference_seconds = time.monotonic() - started
+    pipeline.close()
+    process_seconds = time.monotonic() - started
 
     write_progress(progress_path, phase="mux", result="RUNNING", **counts)
     video_seconds = counts["output_frames"] / fps_out
@@ -407,9 +507,9 @@ def main() -> int:
     out_duration = float((probe.get("format") or {}).get("duration") or 0.0)
     checks = {
         "codec_h264": v.get("codec_name") == "h264",
-        "dimensions": (int(v["width"]), int(v["height"])) == (width, height),
+        "dimensions": (int(v["width"]), int(v["height"])) == (out_w, out_h),
         "frame_count": abs(out_frames - expected) <= 2,
-        "frame_rate_doubled": abs(out_fps - fps_out) / fps_out < 0.02,
+        "frame_rate": abs(out_fps - fps_out) / fps_out < 0.02,
         "duration_preserved": abs(out_duration - info["duration_seconds"]) <= 1.0,
         "audio_preserved": (not info["audio_stream"]) or bool(astreams),
     }
@@ -423,16 +523,17 @@ def main() -> int:
         "input": {"name": input_path.name, "sha256": sha256(input_path), **info},
         "output": {"name": output_path.name, "bytes": output_path.stat().st_size,
                    "sha256": sha256(output_path),
+                   "width": out_w, "height": out_h,
                    "fps": round(out_fps, 3), "frames": out_frames,
                    "duration_seconds": round(out_duration, 3)},
-        "policy": {"mode": mode, "bitrate_bps": bps,
+        "policy": {"bitrate_bps": bps,
                    "scene_cut_threshold": args.scene_cut_threshold,
-                   "static_threshold": args.static_threshold},
+                   "static_threshold": args.static_threshold,
+                   **plan},
         "counts": counts,
         "models": {name: sha256(args.model_dir.resolve() / name)
-                   for name in ({interpolator.fullframe_name} if interpolator.fullframe_name
-                                else {TILE_MODEL})},
-        "timing_seconds": {"interpolate_loop": round(inference_seconds, 3),
+                   for name in pipeline.used_models},
+        "timing_seconds": {"process_loop": round(process_seconds, 3),
                            "total": round(time.monotonic() - started, 3)},
         "checks": checks,
     }
@@ -440,9 +541,9 @@ def main() -> int:
     temporary.write_text(json.dumps(report, indent=2), encoding="utf-8")
     temporary.replace(report_path)
     write_progress(progress_path, phase="done",
-                   result="PASS" if ok else "FAIL", **counts)
+                   result="PASS" if ok else "FAIL", plan=plan, **counts)
     print(json.dumps(report, indent=2))
-    print("RESULT=PASS_VIDEO_INTERPOLATION" if ok else "RESULT=FAIL_VIDEO_INTERPOLATION")
+    print("RESULT=PASS_VIDEO_PIPELINE" if ok else "RESULT=FAIL_VIDEO_PIPELINE")
     return 0 if ok else 2
 
 

@@ -4,7 +4,8 @@
 
 当前阶段：RKNN 模型、板端 NPU 推理、批量验证、单图 CLI、FastAPI/Web UI、
 systemd 服务、Cloudflare Access 公网入口、长期存储治理和生产健康监控均已验证。
-下一阶段是生产安全与可恢复性补强，以及隔离的视频智能插帧技术预检。
+视频增强（CAIN 2× 插帧、SRVGG 4× 超分、以及两者组合的修复模式）已通过
+同一个 Web API 和网站上线。下一阶段是生产安全与可恢复性补强。
 
 已确定首版推理参数：RealESRGAN x4plus FP16、固定 96×96 输入 tile、
 每边初始重叠 8 输入像素。最终 overlap 由真实照片接缝测试确认。
@@ -216,7 +217,16 @@ python tools/validate_video_model_manifest.py datasets/manifests/video-model-can
 和权重来源后，才允许进入 ONNX/RKNN 评估。重复运行会复用已有记录；只有需要刷新
 公开元数据时才加 `-Force`。
 
-离线 2× 视频插帧（CAIN / RKNN NPU，板端已验证；仍为离线 CLI，未接公网 API）：
+网站的「视频增强」面板直接提供三种模式（与图片共用同一队列和任务记录）：
+
+- 插帧 2×：CAIN 补中间帧，帧率翻倍，输入最高 1920×1080；
+- 超分 4×：SRVGG General x4v3 逐帧 4 倍放大，帧率不变，输入最高 960×540；
+- 修复 2×@60：先超分到 2 倍再插帧到 60fps，输入最高 640×360。
+
+视频任务限制为最长 10 分钟、最大 300 MiB，输出保留原始音轨；任务列表会
+实时显示处理阶段和帧进度，完成后可在浏览器直接播放或下载 MP4 与 JSON 报告。
+
+等价的离线 2× 插帧命令行（CAIN / RKNN NPU，板端已验证）：
 
 ```powershell
 .\scripts\interpolate-video.ps1 -InputVideo "C:\path\to\video.mp4"

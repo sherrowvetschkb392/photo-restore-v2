@@ -46,7 +46,7 @@ Invoke-NativeChecked { scp @SshOptions (Join-Path $ProjectRoot "apps\server\app.
 Invoke-NativeChecked { scp @SshOptions (Join-Path $ProjectRoot "requirements-server.txt") "${SshHost}:${RemoteApp}/requirements-server.txt" } "Uploading API requirements"
 Invoke-NativeChecked { scp @SshOptions $UnitSource "${SshHost}:${RemoteUnitUpload}" } "Uploading the API systemd unit"
 Invoke-NativeChecked { scp @SshOptions (Join-Path $ProjectRoot "tests\test_server.py") "${SshHost}:${RemoteServerTest}" } "Uploading isolated API tests"
-foreach ($WorkerFile in @("restore_image.py", "tiling.py")) {
+foreach ($WorkerFile in @("restore_image.py", "tiling.py", "interpolate_video.py")) {
     Invoke-NativeChecked { scp @SshOptions (Join-Path $ProjectRoot "apps\worker\$WorkerFile") "${SshHost}:${RemoteWorker}/${WorkerFile}" } "Uploading worker file $WorkerFile"
 }
 foreach ($FrontendFile in @("index.html", "app.css", "app.js")) {
@@ -55,7 +55,7 @@ foreach ($FrontendFile in @("index.html", "app.css", "app.js")) {
 
 Write-Output "Installing the pinned API dependencies into the project venv..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "'${Python}' -m pip install -r '${RemoteApp}/requirements-server.txt'" } "Installing the API dependencies"
-Invoke-NativeChecked { ssh @SshOptions $SshHost "compile_code=0; '${Python}' -m py_compile '${RemoteApp}/app.py' '${RemoteWorker}/restore_image.py' '${RemoteWorker}/tiling.py' '${RemoteServerTest}' || compile_code=`$?; test_code=0; PHOTO_RESTORE_SERVER_SOURCE='${RemoteApp}/app.py' '${Python}' '${RemoteServerTest}' -v || test_code=`$?; rm -f '${RemoteServerTest}'; test `"`$compile_code`" -eq 0 && test `"`$test_code`" -eq 0" } "Running isolated API retention, preview, safety and database tests"
+Invoke-NativeChecked { ssh @SshOptions $SshHost "compile_code=0; '${Python}' -m py_compile '${RemoteApp}/app.py' '${RemoteWorker}/restore_image.py' '${RemoteWorker}/tiling.py' '${RemoteWorker}/interpolate_video.py' '${RemoteServerTest}' || compile_code=`$?; test_code=0; PHOTO_RESTORE_SERVER_SOURCE='${RemoteApp}/app.py' '${Python}' '${RemoteServerTest}' -v || test_code=`$?; rm -f '${RemoteServerTest}'; test `"`$compile_code`" -eq 0 && test `"`$test_code`" -eq 0" } "Running isolated API retention, preview, safety and database tests"
 
 Write-Output "Installing the versioned API service configuration..."
 Invoke-NativeChecked { ssh @SshOptions $SshHost "sudo install -o root -g root -m 0644 '${RemoteUnitUpload}' /etc/systemd/system/photo-restore-api.service; rm -f '${RemoteUnitUpload}'; sudo systemctl daemon-reload; sudo systemctl enable photo-restore-api.service; sudo systemctl restart photo-restore-api.service" } "Installing and restarting the API service"

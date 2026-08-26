@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "status": "cain_interpolation_implemented",
+  "status": "video_enhancement_deployed",
   "decision": {
-    "spatial_quality_primary": "BasicVSR++",
-    "spatial_quality_backup": ["RealBasicVSR", "RVRT"],
+    "spatial_quality_primary": "SRVGG-General-x4v3",
+    "spatial_quality_backup": ["BasicVSR++", "RealBasicVSR", "RVRT"],
     "interpolation_primary": "CAIN",
     "interpolation_backup": ["IFRNet"],
-    "reason": "RIFE/IFRNet-style warping maps to ONNX GridSample, which RKNN Toolkit 2.3.2 does not lower to an NPU kernel (CustomOperatorLower fallback only), so flow-based interpolation is not deployable on the current board runtime. CAIN (AAAI 2021, MIT) uses only Conv/PixelShuffle/channel-attention and passed the full gate: static-shape ONNX audit, 4e-6 ONNX-vs-PyTorch agreement, 1.3e-3 RKNN-FP16-vs-ONNX agreement on-board, beats-baseline on linear-motion and occlusion-reveal fixtures, and an end-to-end 640x360 30->60 fps board run.",
+    "reason": "RIFE/IFRNet-style warping maps to ONNX GridSample, which RKNN Toolkit 2.3.2 does not lower to an NPU kernel (CustomOperatorLower fallback only), so flow-based interpolation is not deployable on the current board runtime. CAIN (AAAI 2021, MIT) uses only Conv/PixelShuffle/channel-attention and passed the full gate: static-shape ONNX audit, 4e-6 ONNX-vs-PyTorch agreement, 1.3e-3 RKNN-FP16-vs-ONNX agreement on-board, beats-baseline on linear-motion and occlusion-reveal fixtures, and an end-to-end 640x360 30->60 fps board run. For spatial enhancement, recurrent VSR models (BasicVSR++/RealBasicVSR) carry deformable/recurrent operators that do not map to the 2.3.2 NPU kernel set, so the deployed spatial model is the frame-wise SRVGGNetCompact (Real-ESRGAN General x4v3, BSD-3): 5e-6 ONNX-vs-PyTorch agreement, 4.2e-4 RKNN-sim mean error, 272 ms per 256x256 tile on-board. Both models are exposed through the public web API as interpolate / upscale / restore video modes.",
     "thin_texture_note": "The thin-texture fixture shifts a 16 px periodic line pattern by exactly one period per frame (temporal aliasing), so no interpolation model can beat the copy baseline; CAIN lands within +5% MAE and the gate for that case is treated as a no-regression guard.",
     "download_authorized": false
   },
@@ -77,6 +77,29 @@
         "cain-interp-1x3x256x256-fp16.rknn": "9f49cf3886587d499014c077926f92762fcfd0ec186963c408c3ca61dc97710b",
         "cain-interp-1x3x360x640-fp16.rknn": "158883141ea4d793386794bb99e7bd1ab4dceaef22f058ce7688e316655cef41",
         "cain-interp-1x3x720x1280-fp16.rknn": "fd73df3b8875066a0521fd87da9c0e72be7e63d6200243719cfe57fde8116771"
+      }
+    },
+    {
+      "name": "SRVGG-General-x4v3",
+      "family": "video_super_resolution",
+      "role": "spatial_quality_primary",
+      "source_url": "https://github.com/xinntao/Real-ESRGAN",
+      "license_status": "BSD-3-Clause (xinntao/Real-ESRGAN); SRVGGNetCompact architecture inlined from the same repository for export",
+      "weights_source": "realesr-general-x4v3.pth via github.com/xinntao/Real-ESRGAN releases",
+      "weights_sha256": "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292",
+      "temporal_window": 1,
+      "spatial_scale": 4,
+      "rknn_risks": [],
+      "architecture": {
+        "name": "SRVGGNetCompact",
+        "num_feat": 64,
+        "num_conv": 32,
+        "upscale": 4
+      },
+      "usage_note": "Frame-wise 4x super-resolution for the video pipeline; upscale mode outputs 4x, restore mode downsamples the 4x result to 2x (LANCZOS) before CAIN interpolation. Temporal consistency comes from the shared per-frame weights; no recurrent state.",
+      "exported_shapes": ["1x3x256x256"],
+      "rknn_sha256": {
+        "srvgg-general-x4v3-1x3x256x256-fp16.rknn": "4e7981f014ca4978ed07716ab473cbbb41536d6e136d2c20ac347478f5bda03b"
       }
     }
   ]
