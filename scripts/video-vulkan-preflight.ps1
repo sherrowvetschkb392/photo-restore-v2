@@ -50,16 +50,17 @@ $RenderReady = @($DeviceLines | Where-Object { $_ -match '^/dev/dri/renderD12[89
 $HasVulkanLibrary = @($Sections.VULKAN_LIBRARIES | Where-Object { $_ -match 'libvulkan' }).Count -gt 0
 $HasIcd = @($Sections.VULKAN_ICD | Where-Object { $_ -match '^icd=/' }).Count -gt 0
 $VulkanInfoAvailable = $ToolValues.vulkaninfo -and $ToolValues.vulkaninfo -ne "missing"
-$VulkanInfoPassed = $VulkanInfoAvailable -and @($Sections.VULKANINFO | Where-Object { $_ -match 'deviceName|GPU|Vulkan Instance Version' }).Count -gt 0 -and @($Sections.VULKANINFO | Where-Object { $_ -eq 'vulkaninfo_status=failed' }).Count -eq 0
-$BuildTools = @("cmake", "git", "g__")
+$VulkanInfoExit = @($Sections.VULKANINFO | Where-Object { $_ -match '^vulkaninfo_exit_code=' } | Select-Object -Last 1)
+$VulkanInfoPassed = $VulkanInfoAvailable -and $VulkanInfoExit -eq "vulkaninfo_exit_code=0"
+$BuildTools = @("cmake", "git", "gxx")
 $MissingBuildTools = @($BuildTools | Where-Object { -not $ToolValues[$_] -or $ToolValues[$_] -eq "missing" })
 $ExistingNcnn = @($Sections.EXISTING_NCNN | Where-Object { $_ -match '^/' })
 
 $Blockers = [System.Collections.Generic.List[string]]::new()
 if (-not $MaliReady -and -not $RenderReady) { $Blockers.Add("no_writable_gpu_device") }
-if (-not $HasVulkanLibrary) { $Blockers.Add("vulkan_loader_missing") }
-if (-not $HasIcd) { $Blockers.Add("vulkan_icd_missing") }
 if ($VulkanInfoAvailable -and -not $VulkanInfoPassed) { $Blockers.Add("vulkan_runtime_probe_failed") }
+if (-not $HasVulkanLibrary) { $Blockers.Add("vulkan_loader_not_detected") }
+if (-not $HasIcd) { $Blockers.Add("vulkan_icd_not_detected") }
 $Assessment = if ($Blockers.Count) { "BLOCKED" } elseif ($VulkanInfoPassed) { "READY_FOR_NCNN_BUILD_SMOKE" } else { "READY_FOR_VULKANINFO_INSTALL_PLAN" }
 
 $Report = [ordered]@{
@@ -70,6 +71,7 @@ $Report = [ordered]@{
     gpu = [ordered]@{ mali_device_ready = $MaliReady; render_device_ready = $RenderReady }
     vulkan = [ordered]@{ loader_available = $HasVulkanLibrary; icd_available = $HasIcd; vulkaninfo_available = [bool]$VulkanInfoAvailable; runtime_probe_passed = [bool]$VulkanInfoPassed }
     build = [ordered]@{ missing_tools = $MissingBuildTools }
+    gpu_packages = @($Sections.GPU_PACKAGES)
     existing_ncnn_binaries = $ExistingNcnn
     candidate_route = [ordered]@{
         interpolation_primary = "rife-ncnn-vulkan pretrained model"

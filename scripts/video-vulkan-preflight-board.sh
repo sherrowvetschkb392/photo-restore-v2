@@ -25,20 +25,27 @@ for device in /dev/mali0 /dev/dri/renderD128 /dev/dri/renderD129; do
 done
 
 section TOOLS
-for tool in vulkaninfo glslc cmake ninja git g++ make; do
-    printf '%s_path=%s\n' "$(printf '%s' "$tool" | tr '+-' '__')" "$(command_path "$tool")"
-done
+printf 'vulkaninfo_path=%s\n' "$(command_path vulkaninfo)"
+printf 'glslc_path=%s\n' "$(command_path glslc)"
+printf 'cmake_path=%s\n' "$(command_path cmake)"
+printf 'ninja_path=%s\n' "$(command_path ninja)"
+printf 'git_path=%s\n' "$(command_path git)"
+printf 'gxx_path=%s\n' "$(command_path g++)"
+printf 'make_path=%s\n' "$(command_path make)"
 
 section VULKAN_LIBRARIES
 if command -v ldconfig >/dev/null 2>&1; then
     ldconfig -p 2>/dev/null | grep -Ei 'libvulkan|libmali' || true
+elif [ -x /sbin/ldconfig ]; then
+    /sbin/ldconfig -p 2>/dev/null | grep -Ei 'libvulkan|libmali' || true
 else
     printf 'ldconfig=missing\n'
 fi
+find /usr/lib /lib -maxdepth 5 -type f \( -iname 'libvulkan*.so*' -o -iname 'libmali*.so*' \) -print 2>/dev/null || true
 
 section VULKAN_ICD
 found=false
-for path in /etc/vulkan/icd.d/*.json /usr/share/vulkan/icd.d/*.json; do
+for path in /etc/vulkan/icd.d/*.json /usr/share/vulkan/icd.d/*.json /usr/local/share/vulkan/icd.d/*.json; do
     [ -f "$path" ] || continue
     found=true
     printf 'icd=%s\n' "$path"
@@ -48,9 +55,23 @@ done
 
 section VULKANINFO
 if command -v vulkaninfo >/dev/null 2>&1; then
-    timeout 15s vulkaninfo --summary 2>&1 || printf 'vulkaninfo_status=failed\n'
+    if timeout 15s vulkaninfo --summary 2>&1; then
+        printf 'vulkaninfo_exit_code=0\n'
+    else
+        code=$?
+        printf 'vulkaninfo_exit_code=%s\n' "$code"
+    fi
 else
-    printf 'vulkaninfo_status=missing\n'
+    printf 'vulkaninfo_exit_code=missing\n'
+fi
+
+section GPU_PACKAGES
+if command -v dpkg-query >/dev/null 2>&1; then
+    dpkg-query -W -f='${Package}|${Version}\n' 2>/dev/null \
+        | grep -Ei '(vulkan|mali|panfrost|panfork|mesa|drm)' \
+        | sort || true
+else
+    printf 'dpkg_query=missing\n'
 fi
 
 section EXISTING_NCNN
