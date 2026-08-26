@@ -73,7 +73,7 @@ python -m pip install --upgrade 'torch==2.4.0' 'torchvision==0.19.0'
 # the packages without dependency resolution, then add only conservative
 # versions needed for the BasicVSR++ config/export path.
 python -m pip install --no-deps 'mmengine==0.10.7' 'mmagic==1.2.0'
-python -m pip install --no-deps 'addict==2.4.0' 'yapf==0.43.0' 'opencv-python==4.10.0.84' 'scipy==1.13.1' 'scikit-image==0.24.0' 'imageio==2.35.1' 'matplotlib==3.9.2' 'pyyaml==6.0.2' 'rich==13.9.4' 'termcolor==2.5.0'
+python -m pip install --no-deps 'addict==2.4.0' 'yapf==0.43.0' 'tomli==2.0.1' 'coloredlogs==15.0.1' 'flatbuffers==24.3.25' 'humanfriendly==10.0' 'opencv-python==4.10.0.84' 'scipy==1.13.1' 'scikit-image==0.24.0' 'imageio==2.35.1' 'matplotlib==3.9.2' 'pyyaml==6.0.2' 'rich==13.9.4' 'termcolor==2.5.0'
 # Re-assert the ABI-sensitive pins after all package operations.
 python -m pip install --force-reinstall --no-deps 'numpy==1.26.4' 'protobuf==4.25.4' 'onnx==1.16.1' 'onnxruntime==1.18.1'
 mkdir -p '$WslWorkspace'
@@ -81,9 +81,14 @@ if [ ! -d '$WslWorkspace/mmagic/.git' ]; then
   git clone --depth 1 https://github.com/open-mmlab/mmagic.git '$WslWorkspace/mmagic'
 fi
 python - <<'PY'
+import importlib
 import numpy, torch, onnx, onnxruntime, mmengine, mmagic
+for name in ['tomli', 'coloredlogs', 'flatbuffers', 'humanfriendly', 'cv2', 'scipy', 'skimage']:
+    importlib.import_module(name)
 assert numpy.__version__ == '1.26.4', numpy.__version__
 assert onnx.__version__ == '1.16.1', onnx.__version__
+assert onnxruntime.__version__ == '1.18.1', onnxruntime.__version__
+assert torch.__version__.split('+')[0] == '2.4.0', torch.__version__
 print('torch=' + torch.__version__)
 print('numpy=' + numpy.__version__)
 print('onnx=' + onnx.__version__)
