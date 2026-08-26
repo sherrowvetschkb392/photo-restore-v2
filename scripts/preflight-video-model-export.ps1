@@ -56,6 +56,9 @@ Write-Output "Checkpoint: loaded=$($Result.checkpoint.loaded); tensors=$($Result
 Write-Output "MMCV compiled ops: $($Result.operators.mmcv_compiled_ops_available)"
 Write-Output "Model class imported: $($Result.model.class_imported)"
 Write-Output "Export gate: $($Result.export_gate)"
+if ($Result.declared_dependencies.mmagic_missing.Count) {
+    Write-Output "Missing declared MMagic dependencies: $($Result.declared_dependencies.mmagic_missing -join ', ')"
+}
 Write-Output "Report: $Report"
 Write-Output "Board upload: False"
-Write-Output "RESULT=PASS_BASICVSR_EXPORT_PREFLIGHT_DEPLOY"
+Write-Output "RESULT=$($Result.export_gate)_BASICVSR_EXPORT_PREFLIGHT_DEPLOY"

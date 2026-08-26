@@ -18,6 +18,8 @@ import platform
 from pathlib import Path
 from typing import Any
 
+from packaging.requirements import Requirement
+
 
 EXPECTED_HASHES = {
     "basicvsr_plusplus_x4.pth": "db622b2fd4caae0a4c63ab5e54f1cfef7a62a0f3b8ad101aba2eae068d928549",
@@ -38,6 +40,17 @@ def package_version(name: str) -> str | None:
         return importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
         return None
+
+
+def missing_declared_dependencies(distribution: str) -> list[str]:
+    missing: list[str] = []
+    for declaration in importlib.metadata.requires(distribution) or []:
+        requirement = Requirement(declaration)
+        if requirement.marker is not None and not requirement.marker.evaluate():
+            continue
+        if package_version(requirement.name) is None:
+            missing.append(requirement.name)
+    return sorted(set(missing), key=str.lower)
 
 
 def extract_state_dict(checkpoint: Any) -> tuple[dict[str, Any], str]:
@@ -80,12 +93,14 @@ def summarize_keys(state_dict: dict[str, Any]) -> dict[str, Any]:
 def classify(report: dict[str, Any]) -> str:
     if report.get("errors"):
         return "FAIL_PREFLIGHT"
-    operators = report.get("operators", {})
-    if not operators.get("mmcv_compiled_ops_available"):
-        return "BLOCKED_MMCV_DEFORMABLE_OP"
     model = report.get("model", {})
+    operators = report.get("operators", {})
+    if not model.get("class_imported") and not operators.get("mmcv_compiled_ops_available"):
+        return "BLOCKED_MODEL_IMPORT_AND_MMCV_DEFORMABLE_OP"
     if not model.get("class_imported"):
         return "BLOCKED_MODEL_IMPORT"
+    if not operators.get("mmcv_compiled_ops_available"):
+        return "BLOCKED_MMCV_DEFORMABLE_OP"
     return "READY_FOR_FIXED_SHAPE_EXPORT_PROTOTYPE"
 
 
@@ -130,10 +145,20 @@ def main() -> int:
         },
         "artifacts": [],
         "checkpoint": {},
+        "declared_dependencies": {},
         "operators": {},
         "model": {},
         "errors": errors,
     }
+
+    try:
+        report["declared_dependencies"] = {
+            "mmagic_missing": missing_declared_dependencies("mmagic"),
+            "mmengine_missing": missing_declared_dependencies("mmengine"),
+            "mmcv_lite_missing": missing_declared_dependencies("mmcv-lite"),
+        }
+    except Exception as exc:
+        report["declared_dependencies"] = {"error": f"{type(exc).__name__}: {exc}"}
 
     for path in (args.weights.resolve(), args.spynet.resolve()):
         item: dict[str, Any] = {"path": str(path), "exists": path.is_file()}

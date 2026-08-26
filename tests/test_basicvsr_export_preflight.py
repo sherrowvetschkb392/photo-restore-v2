@@ -12,8 +12,14 @@ class BasicVsrExportPreflightTests(unittest.TestCase):
 
     def test_missing_compiled_ops_is_explicit_blocker(self):
         self.assertEqual(
-            preflight.classify({"errors": [], "operators": {"mmcv_compiled_ops_available": False}}),
+            preflight.classify({"errors": [], "operators": {"mmcv_compiled_ops_available": False}, "model": {"class_imported": True}}),
             "BLOCKED_MMCV_DEFORMABLE_OP",
+        )
+
+    def test_multiple_blockers_are_not_hidden(self):
+        self.assertEqual(
+            preflight.classify({"errors": [], "operators": {"mmcv_compiled_ops_available": False}, "model": {"class_imported": False}}),
+            "BLOCKED_MODEL_IMPORT_AND_MMCV_DEFORMABLE_OP",
         )
 
     def test_ready_requires_compiled_ops_and_model_import(self):
