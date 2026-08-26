@@ -248,7 +248,7 @@ python tools/audit_onnx_graph.py path/to/video-model.onnx `
   --report benchmarks/video-model-candidates/onnx-audit.json
 ```
 
-准备 BasicVSR++ 的隔离 ONNX 导出环境：
+准备 BasicVSR++ 的独立 ONNX 导出环境（与 RKNN 转换环境分开）：
 
 ```powershell
 .\scripts\prepare-video-export.ps1 -Candidate "BasicVSR++"
@@ -258,4 +258,10 @@ python tools/audit_onnx_graph.py path/to/video-model.onnx `
 
 ```powershell
 .\scripts\prepare-video-export.ps1 -Candidate "BasicVSR++" -Install
+```
+
+如果曾经误把视频依赖装进 `photo-restore-rknn232`，先执行恢复：
+
+```powershell
+.\scripts\repair-rknn-export-env.ps1
 ```

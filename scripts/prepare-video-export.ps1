@@ -1,6 +1,6 @@
 param(
     [string]$Distribution = "Ubuntu",
-    [string]$CondaEnvironment = "photo-restore-rknn232",
+    [string]$CondaEnvironment = "photo-restore-videoexport",
     [ValidateSet('BasicVSR++', 'RealBasicVSR')]
     [string]$Candidate = "BasicVSR++",
     [switch]$Install
@@ -24,10 +24,13 @@ function Convert-ToWslPath([string]$WindowsPath) {
 
 $WslProjectRoot = Convert-ToWslPath $ProjectRoot
 $WslCandidateRoot = Convert-ToWslPath $CandidateRoot
-$WslWorkspace = "/home/ljd/photo-restore-rknn232/workspace/video-export"
+$WslWorkspace = "/home/ljd/photo-restore-videoexport/workspace"
 $WslCommand = @"
 set -euo pipefail
 source /home/ljd/miniconda3/etc/profile.d/conda.sh
+if ! conda env list | awk '{print $1}' | grep -qx '$CondaEnvironment'; then
+  conda create -y -n '$CondaEnvironment' python=3.10
+fi
 conda activate '$CondaEnvironment'
 mkdir -p '$WslWorkspace'
 cd '$WslWorkspace'
@@ -44,7 +47,7 @@ if (-not $Install) {
     Write-Output "Candidate: $Candidate"
     Write-Output "Environment: $CondaEnvironment"
     Write-Output "Workspace: $WslWorkspace"
-    Write-Output "Plan: verify the isolated Conda environment, then install PyTorch/ONNX/MMEngine/MMagic only there."
+    Write-Output "Plan: create/use the separate video-export Conda environment, then install PyTorch/ONNX/MMEngine/MMagic only there."
     Write-Output "No packages changed. Re-run with -Install to perform the development-environment setup."
     Write-Output "RESULT=PASS_VIDEO_EXPORT_ENV_PLAN"
     return
@@ -57,9 +60,13 @@ if ($LASTEXITCODE -ne 0) { throw "Checking the isolated WSL export environment f
 $InstallCommand = @"
 set -euo pipefail
 source /home/ljd/miniconda3/etc/profile.d/conda.sh
+if ! conda env list | awk '{print $1}' | grep -qx '$CondaEnvironment'; then
+  conda create -y -n '$CondaEnvironment' python=3.10
+fi
 conda activate '$CondaEnvironment'
 python -m pip install --upgrade 'setuptools==70.3.0' 'numpy==1.26.4' 'protobuf==4.25.4' 'onnx==1.16.1' 'onnxruntime==1.18.1'
-python -m pip install 'mmengine>=0.10.4,<1.0' 'mmagic>=1.2.0,<2.0'
+python -m pip install 'torch==2.4.0' 'torchvision==0.19.0'
+python -m pip install 'mmengine==0.10.7' 'mmagic==1.2.0' 'addict' 'yapf' 'opencv-python-headless' 'scipy' 'scikit-image' 'imageio' 'matplotlib'
 mkdir -p '$WslWorkspace'
 if [ ! -d '$WslWorkspace/mmagic/.git' ]; then
   git clone --depth 1 https://github.com/open-mmlab/mmagic.git '$WslWorkspace/mmagic'
