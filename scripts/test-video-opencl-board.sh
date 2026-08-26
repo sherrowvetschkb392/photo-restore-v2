@@ -225,9 +225,15 @@ try:
     check(cl.clEnqueueWriteBuffer(queue, buffer_b, CL_TRUE, 0, buffer_bytes, host_b, 0, None, None), "clEnqueueWriteBuffer(b)")
     report["timing_seconds"]["host_to_device"] = round(time.perf_counter() - transfer_start, 6)
 
-    check(cl.clSetKernelArg(kernel, 0, ctypes.sizeof(buffer_a), ctypes.byref(buffer_a)), "clSetKernelArg(a)")
-    check(cl.clSetKernelArg(kernel, 1, ctypes.sizeof(buffer_b), ctypes.byref(buffer_b)), "clSetKernelArg(b)")
-    check(cl.clSetKernelArg(kernel, 2, ctypes.sizeof(buffer_out), ctypes.byref(buffer_out)), "clSetKernelArg(out)")
+    # ctypes returns c_void_p function results as Python integers. Wrap the
+    # opaque OpenCL handles back into cl_mem instances before taking their
+    # address for clSetKernelArg.
+    buffer_a_arg = cl_mem(buffer_a)
+    buffer_b_arg = cl_mem(buffer_b)
+    buffer_out_arg = cl_mem(buffer_out)
+    check(cl.clSetKernelArg(kernel, 0, ctypes.sizeof(cl_mem), ctypes.byref(buffer_a_arg)), "clSetKernelArg(a)")
+    check(cl.clSetKernelArg(kernel, 1, ctypes.sizeof(cl_mem), ctypes.byref(buffer_b_arg)), "clSetKernelArg(b)")
+    check(cl.clSetKernelArg(kernel, 2, ctypes.sizeof(cl_mem), ctypes.byref(buffer_out_arg)), "clSetKernelArg(out)")
     check(cl.clSetKernelArg(kernel, 3, ctypes.sizeof(scale), ctypes.byref(scale)), "clSetKernelArg(scale)")
 
     global_size = cl_size_t(ELEMENTS)
