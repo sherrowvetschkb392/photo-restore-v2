@@ -247,3 +247,15 @@ python tools/verify_video_model_artifacts.py `
 python tools/audit_onnx_graph.py path/to/video-model.onnx `
   --report benchmarks/video-model-candidates/onnx-audit.json
 ```
+
+准备 BasicVSR++ 的隔离 ONNX 导出环境：
+
+```powershell
+.\scripts\prepare-video-export.ps1 -Candidate "BasicVSR++"
+```
+
+确认计划后，在 WSL 开发环境安装依赖（不改 RK3588）：
+
+```powershell
+.\scripts\prepare-video-export.ps1 -Candidate "BasicVSR++" -Install
+```

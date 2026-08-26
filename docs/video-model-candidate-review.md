@@ -96,3 +96,8 @@ are not uploaded to RK3588 until ONNX export and operator review pass.
 
 `tools/audit_onnx_graph.py` blocks graphs containing dynamic I/O or high-risk
 operators such as `GridSample`, deformable convolution and control-flow nodes.
+
+The isolated export setup is managed by
+`scripts/prepare-video-export.ps1`. Its default mode is a no-change plan;
+`-Install` only changes the named WSL Conda development environment. It never
+installs packages into the board venv and never uploads a model.
