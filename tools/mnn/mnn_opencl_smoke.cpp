@@ -1,5 +1,5 @@
 #include <MNN/Interpreter.hpp>
-#include <MNN/MNNDefine.hpp>
+#include <MNN/MNNDefine.h>
 #include <MNN/Tensor.hpp>
 
 #include <algorithm>
