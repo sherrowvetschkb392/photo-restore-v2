@@ -199,3 +199,9 @@ MP4，并用 ffprobe 验证尺寸、帧率、帧数、时长和音频。它不�
 模型下载前的候选评审表见 `docs/video-model-candidate-review.md` 和
 `datasets/manifests/video-model-candidates.json`；当前只做来源、许可证和算子风险
 登记，不会自动下载权重或修改板端服务。
+
+校验候选清单（只读）：
+
+```powershell
+python tools/validate_video_model_manifest.py datasets/manifests/video-model-candidates.json
+```
