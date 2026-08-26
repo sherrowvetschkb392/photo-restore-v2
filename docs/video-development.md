@@ -321,3 +321,69 @@ For future environment failures, the required order is:
 Do not upload anything to RK3588 merely because this WSL environment passes.
 The next independent gates are BasicVSR++ model construction, checkpoint
 loading, fixed-shape ONNX export, operator audit and ONNX numerical validation.
+
+## CAIN frame interpolation: implemented and verified (2026-08-27)
+
+Offline 2x frame interpolation is now implemented on the RK3588 NPU.
+
+### Model selection evidence
+
+RIFE/IFRNet-class models warp feature maps with `grid_sample`. A controlled
+export test showed RKNN Toolkit 2.3.2 parses GridSample but reports
+`No lowering found for: GridSample, use CustomOperatorLower instead`, i.e. no
+native NPU kernel; that path would silently run as a custom CPU op and is not
+deployable. CAIN (AAAI 2021, MIT license) uses only convolution, PixelShuffle
+reshape/transpose and channel attention, so it converts cleanly.
+
+Two export traps were found and fixed; both are documented because they will
+affect any future model:
+
+1. CAIN's original forward mutates its input tensors in place (`x -= mean`).
+   Any export or evaluation harness must pass clones, and the export wrapper
+   must be functional (no in-place ops).
+2. The eval forward reflection-pads H/W up to multiples of **128** (not 8) via
+   `InOutPaddings`. Shapes that are not 128-multiples (360, 720) silently
+   diverge (max error ~0.35) unless the wrapper reproduces mean-subtract ->
+   reflect-pad -> infer -> crop in exactly the original order.
+
+### Artifacts (all hashes pinned in datasets/manifests/video-model-candidates.json)
+
+- weights: `pretrained_cain.pth` (MIT, sha256 e0c07619...)
+- ONNX: `cain-interp-1x3x{256x256,360x640,720x1280}.onnx`, opset 13, static IO
+- RKNN FP16: matching three shapes; ONNX-vs-PyTorch max error <= 1.5e-5;
+  RKNN-sim-vs-ONNX max error 1.3e-3; on-board-vs-ONNX max error 1.6e-3
+
+### Measured board performance (RK3588, FP16, single job)
+
+| shape | latency/frame | RSS after load |
+|---|---:|---:|
+| 256x256 tile | 283 ms | ~298 MB |
+| 640x360 full frame | 838 ms | ~282 MB |
+| 1280x720 full frame | 3.18 s | ~733 MB |
+
+Full-frame is both faster and higher quality than tiling (global mean and
+channel-attention statistics stay intact, no seams), so the worker prefers an
+exact full-frame model and falls back to 256x256 tiles with 32 px linear-blend
+overlap for other resolutions. NHWC direct feed and multi-core masks showed no
+measurable gain. 400 consecutive tile inferences ran without driver stall and
+with flat RSS, clearing the 3 MP image-pipeline failure mode for this model.
+
+### Worker and driver
+
+- Board worker: `apps/worker/interpolate_video.py` (FFmpeg decode ->
+  scene-cut/static policy -> CAIN RKNN -> GStreamer `mpph264enc` high-profile
+  -> FFmpeg audio-preserving mux -> ffprobe verification -> JSON report).
+  Scene cuts hold the previous frame; near-static pairs copy it. Output frame
+  count is 2N-1 at 2x fps; mux trims both streams to the exact video length
+  (a plain `-shortest` silently drops trailing video frames when the audio
+  track is slightly shorter).
+- Windows driver: `scripts\interpolate-video.ps1` (hash-verified upload,
+  detached board job with progress polling, hash-verified download, remote
+  cleanup; `-SyncModels` uploads the three models from WSL).
+
+Verified board runs (all PASS): 640x360 30->60 fps 8 s with AAC (240->479
+frames, 234 s); 4 s scene-cut clip (1 cut detected and bypassed, 59 static
+pairs skipped); 500x280 25->50 fps tiled path (75->149 frames).
+
+Interpolation remains an offline CLI capability: it is not exposed through the
+public API until the P0 identity/quota/cancellation work lands.

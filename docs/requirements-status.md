@@ -34,7 +34,7 @@ board NPU, and return a verified restored image without requiring cloud access.
 | Database migration, backup and deployment rollback | Pending (P0) | Required before adding video jobs or broader public use |
 | Job progress and cancellation | Pending (P0) | Current image queue exposes state but not worker heartbeat/progress or cancellation |
 | Full photo restoration modes | Pending | Current production model provides general 4x enhancement; face, scratch, denoise/deblur and colorization remain separate research items |
-| Video frame interpolation | Research planned | Offline 2x interpolation is the target; model/RKNN and hardware codec feasibility must pass before product integration |
+| Video frame interpolation | Offline CLI implemented | CAIN (MIT) fixed-shape RKNN models; board-verified 2x interpolation worker with scene-cut/static policy and audio preservation; see `docs/video-development.md`. Public API exposure waits for P0 identity/quota work |
 
 ## Current image contract
 

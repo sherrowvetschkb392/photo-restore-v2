@@ -216,6 +216,17 @@ python tools/validate_video_model_manifest.py datasets/manifests/video-model-can
 和权重来源后，才允许进入 ONNX/RKNN 评估。重复运行会复用已有记录；只有需要刷新
 公开元数据时才加 `-Force`。
 
+离线 2× 视频插帧（CAIN / RKNN NPU，板端已验证；仍为离线 CLI，未接公网 API）：
+
+```powershell
+.\scripts\interpolate-video.ps1 -InputVideo "C:\path\to\video.mp4"
+```
+
+首次使用前若板端缺少模型，加 `-SyncModels` 从 WSL 上传三个固定形状模型。
+支持 640×360 与 1280×720 全帧模式，其他分辨率走 256×256 分块混合；
+自动检测场景切换与静止片段，保留原始音轨。详细设计与实测数据见
+`docs/video-development.md` 的 CAIN 章节。
+
 读取 RealBasicVSR 的配置目录和模型说明（仍不下载权重）：
 
 ```powershell

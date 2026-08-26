@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
-  "status": "pre_download_review",
+  "status": "cain_interpolation_implemented",
   "decision": {
     "spatial_quality_primary": "BasicVSR++",
     "spatial_quality_backup": ["RealBasicVSR", "RVRT"],
-    "interpolation_primary": "RIFE-small",
+    "interpolation_primary": "CAIN",
     "interpolation_backup": ["IFRNet"],
-    "reason": "BasicVSR++ has an official 4x video-super-resolution checkpoint; RealBasicVSR remains an optional 1x real-world cleanup stage and interpolation stays separate.",
+    "reason": "RIFE/IFRNet-style warping maps to ONNX GridSample, which RKNN Toolkit 2.3.2 does not lower to an NPU kernel (CustomOperatorLower fallback only), so flow-based interpolation is not deployable on the current board runtime. CAIN (AAAI 2021, MIT) uses only Conv/PixelShuffle/channel-attention and passed the full gate: static-shape ONNX audit, 4e-6 ONNX-vs-PyTorch agreement, 1.3e-3 RKNN-FP16-vs-ONNX agreement on-board, beats-baseline on linear-motion and occlusion-reveal fixtures, and an end-to-end 640x360 30->60 fps board run.",
+    "thin_texture_note": "The thin-texture fixture shifts a 16 px periodic line pattern by exactly one period per frame (temporal aliasing), so no interpolation model can beat the copy baseline; CAIN lands within +5% MAE and the gate for that case is treated as a no-regression guard.",
     "download_authorized": false
   },
   "candidates": [
@@ -59,6 +60,24 @@
       "temporal_window": "model_defined",
       "spatial_scale": "2_or_4",
       "rknn_risks": ["attention_memory", "dynamic_window", "operator_support"]
+    },
+    {
+      "name": "CAIN",
+      "family": "interpolation",
+      "role": "interpolation_primary",
+      "source_url": "https://github.com/myungsub/CAIN",
+      "license_status": "MIT (myungsub/CAIN LICENSE, 2021 Myungsub Choi)",
+      "weights_source": "pretrained_cain.pth via github.com/Fannovel16/ComfyUI-Frame-Interpolation release 'models' (original Dropbox link unreachable from this network)",
+      "weights_sha256": "e0c07619cc47b01af18c393c2d5d149cb390018afabe1f8f5dc25812a8a7a1e2",
+      "temporal_window": 2,
+      "spatial_scale": 1,
+      "rknn_risks": [],
+      "exported_shapes": ["1x3x256x256", "1x3x360x640", "1x3x720x1280"],
+      "rknn_sha256": {
+        "cain-interp-1x3x256x256-fp16.rknn": "9f49cf3886587d499014c077926f92762fcfd0ec186963c408c3ca61dc97710b",
+        "cain-interp-1x3x360x640-fp16.rknn": "158883141ea4d793386794bb99e7bd1ab4dceaef22f058ce7688e316655cef41",
+        "cain-interp-1x3x720x1280-fp16.rknn": "fd73df3b8875066a0521fd87da9c0e72be7e63d6200243719cfe57fde8116771"
+      }
     }
   ]
 }
