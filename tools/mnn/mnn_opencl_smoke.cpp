@@ -1,4 +1,5 @@
 #include <MNN/Interpreter.hpp>
+#include <MNN/MNNDefine.hpp>
 #include <MNN/Tensor.hpp>
 
 #include <algorithm>
@@ -64,7 +65,7 @@ int main(int argc, char** argv) {
     const auto start = std::chrono::steady_clock::now();
     constexpr int repeats = 50;
     for (int i = 0; i < repeats; ++i) {
-        if (net->runSession(session) != MNN_NO_ERROR) {
+        if (net->runSession(session) != MNN::NO_ERROR) {
             std::cerr << "ERROR=runSession_failed iteration=" << i << "\n";
             return 7;
         }
@@ -111,4 +112,3 @@ int main(int argc, char** argv) {
     std::cout << "RESULT=PASS_MNN_OPENCL_FRAMEWORK_SMOKE\n";
     return 0;
 }
-
