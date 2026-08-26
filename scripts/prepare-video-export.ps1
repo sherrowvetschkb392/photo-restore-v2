@@ -25,10 +25,11 @@ function Convert-ToWslPath([string]$WindowsPath) {
 $WslProjectRoot = Convert-ToWslPath $ProjectRoot
 $WslCandidateRoot = Convert-ToWslPath $CandidateRoot
 $WslWorkspace = "/home/ljd/photo-restore-videoexport/workspace"
+$WslEnvironmentPath = "/home/ljd/miniconda3/envs/$CondaEnvironment"
 $WslCommand = @"
 set -euo pipefail
 source /home/ljd/miniconda3/etc/profile.d/conda.sh
-if ! conda env list | awk '{print $1}' | grep -qx '$CondaEnvironment'; then
+if [ ! -x '$WslEnvironmentPath/bin/python' ]; then
   conda create -y -n '$CondaEnvironment' python=3.10
 fi
 conda activate '$CondaEnvironment'
@@ -60,7 +61,7 @@ if ($LASTEXITCODE -ne 0) { throw "Checking the isolated WSL export environment f
 $InstallCommand = @"
 set -euo pipefail
 source /home/ljd/miniconda3/etc/profile.d/conda.sh
-if ! conda env list | awk '{print $1}' | grep -qx '$CondaEnvironment'; then
+if [ ! -x '$WslEnvironmentPath/bin/python' ]; then
   conda create -y -n '$CondaEnvironment' python=3.10
 fi
 conda activate '$CondaEnvironment'
@@ -73,7 +74,7 @@ python -m pip install --upgrade 'torch==2.4.0' 'torchvision==0.19.0'
 # the packages without dependency resolution, then add only conservative
 # versions needed for the BasicVSR++ config/export path.
 python -m pip install --no-deps 'mmengine==0.10.7' 'mmagic==1.2.0'
-python -m pip install --no-deps 'addict==2.4.0' 'yapf==0.43.0' 'tomli==2.0.1' 'coloredlogs==15.0.1' 'flatbuffers==24.3.25' 'humanfriendly==10.0' 'opencv-python==4.10.0.84' 'scipy==1.13.1' 'scikit-image==0.24.0' 'imageio==2.35.1' 'matplotlib==3.9.2' 'pyyaml==6.0.2' 'rich==13.9.4' 'termcolor==2.5.0'
+python -m pip install --no-deps 'addict==2.4.0' 'yapf==0.43.0' 'tomli==2.0.1' 'platformdirs==4.3.6' 'coloredlogs==15.0.1' 'flatbuffers==24.3.25' 'humanfriendly==10.0' 'opencv-python==4.10.0.84' 'scipy==1.13.1' 'scikit-image==0.24.0' 'imageio==2.35.1' 'matplotlib==3.9.2' 'pyyaml==6.0.2' 'rich==13.9.4' 'termcolor==2.5.0'
 # Re-assert the ABI-sensitive pins after all package operations.
 python -m pip install --force-reinstall --no-deps 'numpy==1.26.4' 'protobuf==4.25.4' 'onnx==1.16.1' 'onnxruntime==1.18.1'
 mkdir -p '$WslWorkspace'
@@ -83,7 +84,7 @@ fi
 python - <<'PY'
 import importlib
 import numpy, torch, onnx, onnxruntime, mmengine, mmagic
-for name in ['tomli', 'coloredlogs', 'flatbuffers', 'humanfriendly', 'cv2', 'scipy', 'skimage']:
+for name in ['tomli', 'platformdirs', 'coloredlogs', 'flatbuffers', 'humanfriendly', 'cv2', 'scipy', 'skimage']:
     importlib.import_module(name)
 assert numpy.__version__ == '1.26.4', numpy.__version__
 assert onnx.__version__ == '1.16.1', onnx.__version__
