@@ -240,3 +240,10 @@ BasicVSR++ 4×官方权重下载计划（不下载）：
 python tools/verify_video_model_artifacts.py `
   data/video-development/model-candidates/BasicVSR++/weights-record.json
 ```
+
+导出 ONNX 后先做算子/动态形状审计：
+
+```powershell
+python tools/audit_onnx_graph.py path/to/video-model.onnx `
+  --report benchmarks/video-model-candidates/onnx-audit.json
+```

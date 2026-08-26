@@ -93,3 +93,6 @@ Its record contains the official URLs, byte counts and SHA-256 values for the
 4× checkpoint and SPyNet dependency. The cache must pass
 `tools/verify_video_model_artifacts.py` before export work begins. Weight files
 are not uploaded to RK3588 until ONNX export and operator review pass.
+
+`tools/audit_onnx_graph.py` blocks graphs containing dynamic I/O or high-risk
+operators such as `GridSample`, deformable convolution and control-flow nodes.
