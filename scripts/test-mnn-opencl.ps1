@@ -74,7 +74,9 @@ set -eu
 cd '$RemoteRoot'
 sha256sum --strict -c SHA256SUMS
 chmod 700 mnn-opencl-smoke
-export LD_LIBRARY_PATH='$RemoteRoot':`$LD_LIBRARY_PATH
+# Keep this safe under `set -u`: the board service environment may not define
+# LD_LIBRARY_PATH before the isolated test starts.
+export LD_LIBRARY_PATH='$RemoteRoot':`${LD_LIBRARY_PATH:-}
 export MNN_OPENCL_BUFFER_CLOSED=0
 ./mnn-opencl-smoke ./mnn-opencl-smoke.mnn
 printf 'api_after='; systemctl is-active photo-restore-api.service
