@@ -1,5 +1,6 @@
 param(
     [string]$SshHost = "rk3588",
+    [string]$Distribution = "Ubuntu",
     [switch]$Cleanup
 )
 
@@ -8,10 +9,11 @@ $ProjectRoot = (Resolve-Path (Split-Path -Parent $PSScriptRoot)).Path
 $ArtifactDirectory = Join-Path $ProjectRoot "data\video-development\mnn-opencl-cross\output"
 $ReportDirectory = Join-Path $ProjectRoot "benchmarks\mnn-opencl-smoke"
 $OutputReport = Join-Path $ReportDirectory "latest.txt"
+$RuntimePackager = Join-Path $ProjectRoot "scripts\package-mnn-opencl-runtime.sh"
 $RemoteRoot = "/userdata/photo-restore-v2/data/video-development/mnn-opencl-smoke"
 $SshOptions = @("-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3")
 
-foreach ($Command in @("ssh", "scp")) {
+foreach ($Command in @("ssh", "scp", "wsl.exe")) {
     if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) { throw "Required command is unavailable: $Command" }
 }
 
@@ -30,12 +32,63 @@ foreach ($Name in $Artifacts) {
         throw "Required cross-build artifact is missing: $Path. Run scripts\build-mnn-opencl-cross.ps1 first."
     }
 }
+if (-not (Test-Path -LiteralPath $RuntimePackager -PathType Leaf)) {
+    throw "Required runtime packager is missing: $RuntimePackager"
+}
+
+function Convert-ToWslPath([string]$WindowsPath) {
+    if ($WindowsPath -notmatch '^(?<drive>[A-Za-z]):\\(?<path>.*)$') { throw "Unsupported Windows path: $WindowsPath" }
+    return "/mnt/$($Matches.drive.ToLowerInvariant())/$($Matches.path.Replace('\', '/'))"
+}
+
+$RuntimeNames = @(
+    "ld-linux-aarch64.so.1",
+    "libc.so.6",
+    "libm.so.6",
+    "libmvec.so.1",
+    "libstdc++.so.6",
+    "libgcc_s.so.1",
+    "libdl.so.2",
+    "libpthread.so.0",
+    "librt.so.1"
+)
+$RuntimeDirectory = Join-Path $ArtifactDirectory "runtime"
+$RuntimeRecord = Join-Path $ArtifactDirectory "runtime-record.json"
+$RuntimeMissing = -not (Test-Path -LiteralPath $RuntimeRecord -PathType Leaf)
+foreach ($Name in $RuntimeNames) {
+    if (-not (Test-Path -LiteralPath (Join-Path $RuntimeDirectory $Name) -PathType Leaf)) {
+        $RuntimeMissing = $true
+    }
+}
+if ($RuntimeMissing) {
+    Write-Output "Packaging an isolated ARM64 runtime compatible with the existing cross-build..."
+    $WslPackager = Convert-ToWslPath $RuntimePackager
+    $WslArtifactDirectory = Convert-ToWslPath $ArtifactDirectory
+    & wsl.exe -d $Distribution -- bash $WslPackager $WslArtifactDirectory
+    if ($LASTEXITCODE -ne 0) { throw "Packaging the isolated ARM64 runtime failed with exit code $LASTEXITCODE" }
+}
+
 New-Item -ItemType Directory -Force -Path $ReportDirectory | Out-Null
 $ManifestPath = Join-Path $ReportDirectory "SHA256SUMS-upload"
-$ManifestLines = foreach ($Name in @("libMNN.so", "mnn-opencl-smoke", "mnn-opencl-smoke.mnn")) {
-    $LocalPath = Join-Path $ArtifactDirectory $Name
+$UploadFiles = @(
+    @{ Local = (Join-Path $ArtifactDirectory "libMNN.so"); Remote = "libMNN.so" },
+    @{ Local = (Join-Path $ArtifactDirectory "mnn-opencl-smoke"); Remote = "mnn-opencl-smoke" },
+    @{ Local = (Join-Path $ArtifactDirectory "mnn-opencl-smoke.mnn"); Remote = "mnn-opencl-smoke.mnn" },
+    @{ Local = (Join-Path $ArtifactDirectory "build-record.json"); Remote = "build-record.json" },
+    @{ Local = $RuntimeRecord; Remote = "runtime-record.json" }
+)
+foreach ($Name in $RuntimeNames) {
+    $UploadFiles += @{ Local = (Join-Path $RuntimeDirectory $Name); Remote = "runtime/$Name" }
+}
+foreach ($File in $UploadFiles) {
+    if (-not (Test-Path -LiteralPath $File.Local -PathType Leaf)) {
+        throw "Required MNN OpenCL upload artifact is missing: $($File.Local)"
+    }
+}
+$ManifestLines = foreach ($File in $UploadFiles | Where-Object { $_.Remote -ne "build-record.json" }) {
+    $LocalPath = $File.Local
     $Hash = (Get-FileHash -LiteralPath $LocalPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    "$Hash  $Name"
+    "$Hash  $($File.Remote)"
 }
 # The manifest is uploaded to Linux.  Set-Content emits CRLF on Windows,
 # which makes sha256sum treat the trailing carriage return as part of each
@@ -59,11 +112,11 @@ if ($SafetyText -match '(?m)^workers=(?<count>\d+)$' -and [int]$Matches.count -g
 }
 
 Write-Output "Preparing the isolated board directory and uploading verified artifacts..."
-& ssh @SshOptions $SshHost "umask 077; mkdir -p '$RemoteRoot'; find '$RemoteRoot' -mindepth 1 -maxdepth 1 -type f -delete"
+& ssh @SshOptions $SshHost "umask 077; mkdir -p '$RemoteRoot'; find '$RemoteRoot' -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; mkdir -p '$RemoteRoot/runtime'"
 if ($LASTEXITCODE -ne 0) { throw "Preparing the isolated board directory failed with exit code $LASTEXITCODE" }
-foreach ($Name in $Artifacts) {
-    & scp @SshOptions (Join-Path $ArtifactDirectory $Name) "${SshHost}:${RemoteRoot}/${Name}" | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "Uploading $Name failed with exit code $LASTEXITCODE" }
+foreach ($File in $UploadFiles) {
+    & scp @SshOptions $File.Local "${SshHost}:${RemoteRoot}/$($File.Remote)" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Uploading $($File.Remote) failed with exit code $LASTEXITCODE" }
 }
 & scp @SshOptions $ManifestPath "${SshHost}:${RemoteRoot}/SHA256SUMS" | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Uploading the generated checksum manifest failed with exit code $LASTEXITCODE" }
@@ -74,11 +127,11 @@ set -eu
 cd '$RemoteRoot'
 sha256sum --strict -c SHA256SUMS
 chmod 700 mnn-opencl-smoke
-# Keep this safe under `set -u`: the board service environment may not define
-# LD_LIBRARY_PATH before the isolated test starts.
-export LD_LIBRARY_PATH='$RemoteRoot':`${LD_LIBRARY_PATH:-}
+chmod 755 runtime/ld-linux-aarch64.so.1
 export MNN_OPENCL_BUFFER_CLOSED=0
-./mnn-opencl-smoke ./mnn-opencl-smoke.mnn
+./runtime/ld-linux-aarch64.so.1 \
+    --library-path '${RemoteRoot}/runtime:${RemoteRoot}:/usr/lib/aarch64-linux-gnu:/lib/aarch64-linux-gnu' \
+    ./mnn-opencl-smoke ./mnn-opencl-smoke.mnn
 printf 'api_after='; systemctl is-active photo-restore-api.service
 printf 'tunnel_after='; systemctl is-active cloudflared.service
 "@

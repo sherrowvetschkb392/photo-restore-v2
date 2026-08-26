@@ -113,6 +113,8 @@ aarch64-linux-gnu-g++ -std=c++14 -O2 \
     -Wl,-rpath,'$ORIGIN' \
     -o "${OUTPUT_ROOT}/mnn-opencl-smoke"
 
+bash "${PROJECT_ROOT}/scripts/package-mnn-opencl-runtime.sh" "${OUTPUT_ROOT}"
+
 cat > "${OUTPUT_ROOT}/build-record.json" <<JSON
 {
   "schema_version": 1,
@@ -129,6 +131,8 @@ JSON
         libMNN.so \
         mnn-opencl-smoke \
         mnn-opencl-smoke.mnn \
+        runtime-record.json \
+        runtime/* \
         > SHA256SUMS
 )
 

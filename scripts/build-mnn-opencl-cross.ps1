@@ -12,12 +12,13 @@ $ProjectRoot = (Resolve-Path (Split-Path -Parent $PSScriptRoot)).Path
 $BuildScript = Join-Path $ProjectRoot "scripts\build-mnn-opencl-cross.sh"
 $Generator = Join-Path $ProjectRoot "tools\mnn\make_opencl_smoke_onnx.py"
 $SmokeSource = Join-Path $ProjectRoot "tools\mnn\mnn_opencl_smoke.cpp"
+$RuntimePackager = Join-Path $ProjectRoot "scripts\package-mnn-opencl-runtime.sh"
 $CacheDirectory = Join-Path $ProjectRoot "data\video-development\mnn-opencl-cross"
 $OutputDirectory = Join-Path $CacheDirectory "output"
 $OpenClLibrary = Join-Path $CacheDirectory "libOpenCL.so.1.0.0"
 $SshOptions = @("-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3")
 
-foreach ($Path in @($BuildScript, $Generator, $SmokeSource)) {
+foreach ($Path in @($BuildScript, $Generator, $SmokeSource, $RuntimePackager)) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required build source is missing: $Path" }
 }
 foreach ($Command in @("wsl.exe", "ssh", "scp")) {
@@ -50,9 +51,13 @@ if ($LASTEXITCODE -ne 0) {
     throw "The isolated MNN OpenCL cross-build failed with exit code $LASTEXITCODE.$Hint"
 }
 
-foreach ($Name in @("libMNN.so", "mnn-opencl-smoke", "mnn-opencl-smoke.mnn", "build-record.json", "SHA256SUMS")) {
+foreach ($Name in @("libMNN.so", "mnn-opencl-smoke", "mnn-opencl-smoke.mnn", "build-record.json", "runtime-record.json", "SHA256SUMS")) {
     $Path = Join-Path $OutputDirectory $Name
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Expected cross-build artifact is missing: $Path" }
+}
+foreach ($Name in @("ld-linux-aarch64.so.1", "libc.so.6", "libm.so.6", "libmvec.so.1", "libstdc++.so.6", "libgcc_s.so.1", "libdl.so.2", "libpthread.so.0", "librt.so.1")) {
+    $Path = Join-Path $OutputDirectory "runtime\$Name"
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Expected isolated ARM64 runtime artifact is missing: $Path" }
 }
 Write-Output "Output: $OutputDirectory"
 Write-Output "Board upload: False"
