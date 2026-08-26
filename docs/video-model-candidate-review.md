@@ -19,14 +19,14 @@ the repository's fixed-shape contracts before it can enter RKNN conversion.
 
 ## Initial shortlist
 
-### Current provisional decision
+### Historical quality-first decision
 
-For the first quality-oriented prototype, use **BasicVSR++ 4×** as the spatial
+The initial quality-first review selected **BasicVSR++ 4×** as the spatial
 video-super-resolution primary and **RIFE-small** as the separate frame-rate
 primary. Keep **RealBasicVSR** as an optional 1× real-world cleanup stage,
 **RVRT** as a higher-risk quality backup, and **IFRNet** as the lighter
-interpolation fallback. This is a product-quality prioritization, not a claim
-that BasicVSR++ is already RKNN-compatible.
+interpolation fallback. The later operator probes below supersede BasicVSR++ as
+the RK3588 deployment candidate while retaining it as a quality reference.
 
 The reason is product fit: the main gap includes resolution, and the official
 BasicVSR++ checkpoint explicitly targets BI×4/BD×4 video super-resolution.
@@ -38,8 +38,8 @@ restoration should be independently switchable and measurable.
 |---|---|---|---|---|
 | IFRNet | 2× frame interpolation | Relatively compact, direct two-frame midpoint contract | Flow/warp implementation and export shape must be inspected | Lighter interpolation fallback |
 | RIFE (small variant) | 2× frame interpolation | Mature frame interpolation family with small variants | Version/license and custom warp operators vary by repository | Interpolation primary |
-| BasicVSR++ | Temporal video super-resolution | Strong temporal propagation and official 2×/4× enhancement checkpoints | Deformable alignment, long recurrent state, high memory | Spatial quality primary prototype |
-| RealBasicVSR | Real-world video super-resolution | Restoration-oriented cleanup and temporal consistency | Degradation model and recurrent alignment may not export cleanly | Optional 1× cleanup stage |
+| BasicVSR++ | Temporal video super-resolution | Strong temporal propagation and official 2×/4× enhancement checkpoints | Deformable alignment, long recurrent state, high memory | PC quality reference; RK3588 conversion blocked |
+| RealBasicVSR | Real-world video super-resolution | Restoration-oriented cleanup and temporal consistency | Degradation model and recurrent alignment may not export cleanly | Deferred optional 1× cleanup |
 | RVRT | Temporal video super-resolution | Windowed transformer alternative for restoration | Attention/memory cost and unsupported operators | Deferred unless lightweight candidates fail |
 
 The table is a prioritization, not a license assertion. The license of the
@@ -123,3 +123,26 @@ fixed-window temporal-fusion student built only from standard Conv, activation,
 addition, reshape and PixelShuffle operations. Passing its architecture export
 probe is not a quality claim; training or teacher distillation is required
 before comparison with the video-enhancement fixtures.
+
+### No-training deployment route
+
+The current product route prioritizes existing pre-trained models because the
+project does not have dedicated training hardware. The custom temporal-fusion
+student and teacher distillation are deferred research, not current delivery
+requirements.
+
+The practical model chain is:
+
+1. use the already validated RKNN Real-ESRGAN image worker for optional spatial
+   enhancement, with explicit temporal-flicker quality checks;
+2. evaluate the pre-trained `rife-ncnn-vulkan` model for 2× interpolation on
+   the RK3588 Mali GPU instead of converting RIFE to RKNN first;
+3. keep `realesrgan-ncnn-vulkan` as a GPU spatial fallback, including the
+   `realesr-animevideov3` preset for animation material;
+4. keep BasicVSR++ only as a PC-side reference; do not require training or
+   distillation for the initial public video feature.
+
+This route still requires a read-only Vulkan/ICD inventory, an isolated NCNN
+build/runtime smoke test, model checksum/license recording, scene-cut bypass,
+and real video quality/performance measurement. A Vulkan path is not assumed
+merely because `/dev/mali0` exists.
