@@ -213,4 +213,5 @@ python tools/validate_video_model_manifest.py datasets/manifests/video-model-can
 ```
 
 结果隔离在 `data\video-development\model-candidates\`，需要人工确认具体提交、许可证
-和权重来源后，才允许进入 ONNX/RKNN 评估。
+和权重来源后，才允许进入 ONNX/RKNN 评估。重复运行会复用已有记录；只有需要刷新
+公开元数据时才加 `-Force`。

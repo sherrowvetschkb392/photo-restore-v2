@@ -17,8 +17,16 @@ $CandidateMap = @{
 }
 $Selection = $CandidateMap[$Candidate]
 $OutputDirectory = Join-Path $OutputRoot $Candidate
-if ($OutputDirectory -and (Test-Path -LiteralPath $OutputDirectory) -and -not $Force) {
-    throw "Metadata directory already exists: $OutputDirectory. Use -Force to refresh it."
+if ((Test-Path -LiteralPath $OutputDirectory) -and -not $Force) {
+    $ExistingRecord = Join-Path $OutputDirectory 'candidate-record.json'
+    if (-not (Test-Path -LiteralPath $ExistingRecord)) {
+        throw "Metadata directory exists but is incomplete: $OutputDirectory. Use -Force to refresh it."
+    }
+    Write-Output "Metadata already exists; reusing the isolated record: $OutputDirectory"
+    Write-Output "Weights downloaded: False"
+    Write-Output "Board upload: False"
+    Write-Output 'RESULT=PASS_VIDEO_MODEL_METADATA_FETCH_REUSED'
+    return
 }
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $Headers = @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'photo-restore-v2-candidate-review' }
